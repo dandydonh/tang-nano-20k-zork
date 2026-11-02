@@ -523,5 +523,7 @@ validation will require the user-selected keyboard wiring and a prepared SD card
 - Downloaded current GitHub styles and measured Chrome rendering in an
   880px content column: before image 854px / scroll width 880px; after image
   1676px / scroll width 1859px. This verifies a real increase in rendered size.
-- Publishing correction and checking GitHub sanitization next. Original
-  screenshot unchanged; no firmware/build/hardware changes.
+- Pushed correction as ad7cfbf. Fetched published GitHub HTML at that commit:
+  all 224 nonbreaking spaces survive sanitization. Rendered that exact HTML
+  with GitHub CSS in Chrome: image 1676px, viewport 880px, scroll width 1859px.
+- Original screenshot unchanged; no firmware/build/hardware changes.
