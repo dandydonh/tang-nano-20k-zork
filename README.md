@@ -122,7 +122,7 @@ corrected this way; its original config is backed up in
 The UART receive FIFO is 16 bytes; type normally rather than pasting multiple
 commands while the game is producing output. PS/2 and serial inputs can both
 be connected. User serial output has been observed in Minicom; PS/2 hardware
-and physical SD save/restore remain unverified.
+remain unverified.
 
 ## SD layout
 
