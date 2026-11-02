@@ -19,7 +19,18 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 
 ## Play
 
-![Zork serial startup screen with a single project title at left and score and moves at right](zork_startup_screen.png)
+<table>
+  <tr>
+    <td width="1676">
+      <a href="zork_startup_screen.png">
+        <img src="zork_startup_screen.png" width="1676" height="280" alt="Zork serial startup screen with a single project title at left and score and moves at right">
+      </a>
+    </td>
+  </tr>
+</table>
+
+[Open the full-size screenshot](zork_startup_screen.png). Scroll horizontally
+above to see the full terminal at its original size.
 
 Serial output from the Tang Nano 20K after the corrected firmware was flashed.
 The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and

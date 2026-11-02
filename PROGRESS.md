@@ -503,3 +503,12 @@ validation will require the user-selected keyboard wiring and a prepared SD card
   does not alter bitstream. SD images/save data and local tool/board-reference
   files are not part of this update. HDMI, PS/2, SD save/restore and physical
   power-cycle persistence remain unvalidated.
+
+## README screenshot enlargement, 2026-11-02
+
+- User reports corrected screenshot appears too small in GitHub README.
+- Replaced ordinary Markdown image with native 1676x280 dimensions in a wide
+  table, allowing GitHub's table overflow to scroll horizontally; added an
+  explicit full-size screenshot link. Original screenshot pixels unchanged.
+- Documentation-only update; no firmware, build or hardware changes. Verified
+  image dimensions and relative link target; preparing commit/push to main.
