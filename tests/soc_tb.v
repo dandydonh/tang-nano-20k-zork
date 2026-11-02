@@ -1,0 +1,90 @@
+`timescale 1ns/1ps
+module soc_tb;
+ reg clk=0,reset=1,rx=1,kclk=1,kdata=1;
+ always #5 clk=~clk;
+ wire tx,sck,mosi,cs,miso,trap,tw;wire [11:0] ta;wire [7:0] td;reg [7:0] tr;
+ reg [7:0] text[0:4095];
+ zork_soc dut(.clk(clk),.reset(reset),.uart_rx(rx),.uart_tx(tx),.ps2_clk(kclk),.ps2_data(kdata),
+   .sd_miso(miso),.sd_clk(sck),.sd_mosi(mosi),.sd_cs(cs),.trap(trap),
+   .text_addr(ta),.text_data(td),.text_write(tw),.text_read(tr));
+ sd_spi_model card(.sck(sck),.cs(cs),.mosi(mosi),.miso(miso));
+ integer cycles=0,prompts=0,chars=0;
+ reg [7:0] previous_serial=0;
+ integer serial_newlines=0;
+ string terminal_init="\033[0m\033[37;49m\033[2J\033[H";
+ integer init_position=0,terminal_initializations=0;
+ always @(posedge clk)begin
+   tr<=text[ta];if(tw)text[ta]<=td;
+   if(reset)init_position=0;
+   if(!reset)begin cycles=cycles+1;if(trap)$fatal(1,"CPU trap at %h",dut.cpu.reg_pc);
+     if(dut.io_write&&dut.addr[7:0]==20&&!dut.tx_busy)begin
+       if(init_position<terminal_init.len())begin
+         if(dut.wdata[7:0]!=terminal_init[init_position])
+           $fatal(1,"terminal startup attributes/clear mismatch at byte %0d",init_position);
+         init_position=init_position+1;
+         if(init_position==terminal_init.len())terminal_initializations=terminal_initializations+1;
+       end else if(dut.wdata[7:0]==27)$fatal(1,"unexpected terminal escape during gameplay");
+       if(dut.wdata[7:0]==10)begin
+         if(previous_serial!=13)$fatal(1,"serial LF without CR causes terminal skew");
+         serial_newlines=serial_newlines+1;
+       end
+       if(previous_serial==13&&dut.wdata[7:0]!=10)$fatal(1,"serial CR without LF");
+       previous_serial=dut.wdata[7:0];
+       $write("%c",dut.wdata[7:0]);$fflush();chars=chars+1;if(dut.wdata[7:0]==62)prompts=prompts+1;
+     end
+     if(cycles==180000000)$fatal(1,"timeout pc=%h SDreads=%d",dut.cpu.reg_pc,card.reads);
+   end
+ end
+ task send_uart(input [7:0] c);
+   integer b;begin
+     @(negedge clk);rx=0;repeat(234)@(negedge clk);
+     for(b=0;b<8;b=b+1)begin rx=c[b];repeat(234)@(negedge clk);end
+     rx=1;repeat(234)@(negedge clk);
+   end
+ endtask
+ task send_key(input [7:0] c);
+   reg [10:0] frame;integer b;begin
+     frame={1'b1,~^c,c,1'b0};
+     for(b=0;b<11;b=b+1)begin kdata=frame[b];repeat(500)@(negedge clk);kclk=0;repeat(500)@(negedge clk);kclk=1;end
+     kdata=1;repeat(500)@(negedge clk);
+   end
+ endtask
+ initial begin
+   $display("Starting firmware/SD integration test");$fflush();
+   repeat(20)@(negedge clk);reset=0;
+   wait(prompts==1);repeat(2000)@(negedge clk);
+   // PS/2 types LOOK, proving receiver, FIFO, map, editor and interpreter path.
+   send_key(8'h4b);send_key(8'h44);send_key(8'h44);send_key(8'h42);send_key(8'h5a);
+   wait(prompts==2);repeat(2000)@(negedge clk);
+   // Recall PS/2 LOOK via extended Up; serial Down restores draft "x".
+   // Erase draft, recall with SS3 Up and ignore CSI Right, then submit LOOK.
+   send_uart("x");send_key(8'he0);send_key(8'h75);
+   send_key(8'he0);send_key(8'hf0);send_key(8'h75);
+   send_uart(27);send_uart("[");send_uart("B");send_uart(127);
+   send_uart(27);send_uart("O");send_uart("A");
+   send_uart(27);send_uart("[");send_uart("C");send_uart(13);
+   wait(prompts==3);repeat(2000)@(negedge clk);
+   send_uart("s");send_uart("a");send_uart("v");send_uart("e");send_uart(13);
+   wait(prompts==4);repeat(2000)@(negedge clk);
+   send_uart("n");send_uart(13);
+   wait(prompts==5);repeat(2000)@(negedge clk);
+   send_uart("r");send_uart("e");send_uart("s");send_uart("t");send_uart("o");send_uart("r");send_uart("e");send_uart(13);
+   wait(prompts==6);repeat(2000)@(negedge clk);
+   send_uart("l");send_uart("o");send_uart("o");send_uart("k");send_uart(13);
+   wait(prompts==7);repeat(2000)@(negedge clk);
+   // Reset CPU and all peripherals while retaining SD contents, then restore.
+   @(negedge clk);reset=1;repeat(20)@(negedge clk);reset=0;
+   wait(prompts==8);repeat(2000)@(negedge clk);
+   send_uart("r");send_uart("e");send_uart("s");send_uart("t");send_uart("o");send_uart("r");send_uart("e");send_uart(13);
+   wait(prompts==9);repeat(2000)@(negedge clk);
+   send_uart("l");send_uart("o");send_uart("o");send_uart("k");send_uart(13);
+   wait(prompts==10);repeat(2000)@(negedge clk);
+   if(card.writes<2)$fatal(1,"save never wrote SD");
+   if(serial_newlines<20)$fatal(1,"serial line ending coverage missing");
+   if(terminal_initializations!=2)$fatal(1,"terminal must initialize at boot and reset");
+   $display("\nPASS serial attributes, white on default background, clear/home at boot and reset");
+   $display("\nPASS serial CRLF on %0d newlines",serial_newlines);
+   $display("\nPASS soc boot, PS/2 LOOK, UART SAVE/NORTH/RESTORE/LOOK, reset/restore: %0d cycles, %0d SD reads, %0d writes",cycles,card.reads,card.writes);
+   $finish;
+ end
+endmodule

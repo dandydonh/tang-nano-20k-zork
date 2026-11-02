@@ -1,0 +1,35 @@
+// Tang Nano 20K, GW2AR-LV18QN88C8/I7, device revision C.
+// Pin pairs verified against Sipeed's official HDMI example.
+IO_LOC "clk_27mhz" 4;
+IO_PORT "clk_27mhz" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC "reset_button" 88;
+IO_PORT "reset_button" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC "led_n" 20;
+IO_PORT "led_n" IO_TYPE=LVCMOS33 DRIVE=8 PULL_MODE=UP;
+IO_LOC "hdmi_clk_p" 33,34;
+IO_LOC "hdmi_data_p[0]" 35,36;
+IO_LOC "hdmi_data_p[1]" 37,38;
+IO_LOC "hdmi_data_p[2]" 39,40;
+IO_PORT "hdmi_clk_p" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_PORT "hdmi_data_p[0]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_PORT "hdmi_data_p[1]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+IO_PORT "hdmi_data_p[2]" IO_TYPE=LVDS25 PULL_MODE=NONE DRIVE=3.5 BANK_VCCIO=3.3;
+// Onboard BL616 serial, verified against Sipeed uart/src/top.cst.
+IO_LOC "uart_rx" 70;
+IO_LOC "uart_tx" 69;
+IO_PORT "uart_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "uart_tx" IO_TYPE=LVCMOS33 DRIVE=8;
+// microSD in SPI mode: DAT3=CS, CMD=MOSI, CLK, DAT0=MISO.
+IO_LOC "sd_cs" 81;
+IO_LOC "sd_mosi" 82;
+IO_LOC "sd_clk" 83;
+IO_LOC "sd_miso" 84;
+IO_PORT "sd_cs" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_PORT "sd_mosi" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_PORT "sd_clk" IO_TYPE=LVCMOS33 DRIVE=8;
+IO_PORT "sd_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+// Optional PS/2 adapter on exposed GPIO. Must level shift to 3.3 V.
+IO_LOC "ps2_clk" 25;
+IO_LOC "ps2_data" 26;
+IO_PORT "ps2_clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "ps2_data" IO_TYPE=LVCMOS33 PULL_MODE=UP;

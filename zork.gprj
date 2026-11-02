@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+<Template>FPGA</Template>
+<Version>5</Version>
+<Device name="GW2AR-18C" pn="GW2AR-LV18QN88C8/I7">gw2ar18c-000</Device>
+<FileList>
+<File path="third_party/picorv32.v" type="file.verilog" enable="1"/>
+<File path="src/input_fifo.v" type="file.verilog" enable="1"/>
+<File path="src/ps2_receiver.v" type="file.verilog" enable="1"/>
+<File path="src/spi_byte.v" type="file.verilog" enable="1"/>
+<File path="src/text_video.v" type="file.verilog" enable="1"/>
+<File path="src/tmds_encoder.v" type="file.verilog" enable="1"/>
+<File path="src/uart.v" type="file.verilog" enable="1"/>
+<File path="src/zork_soc.v" type="file.verilog" enable="1"/>
+<File path="src/zork_top.v" type="file.verilog" enable="1"/>
+<File path="constraints/tang_nano_20k.cst" type="file.cst" enable="1"/>
+<File path="constraints/zork.sdc" type="file.sdc" enable="1"/>
+<File path="assets/firmware.hex" type="file.other" enable="0"/>
+<File path="assets/font.hex" type="file.other" enable="0"/>
+<File path="assets/text_blank.hex" type="file.other" enable="0"/>
+<File path="firmware/platform.c" type="file.other" enable="0"/>
+<File path="firmware/platform.h" type="file.other" enable="0"/>
+<File path="firmware/zmachine.c" type="file.other" enable="0"/>
+<File path="firmware/start.S" type="file.other" enable="0"/>
+<File path="firmware/link.ld" type="file.other" enable="0"/>
+<File path="ide/zork_process_config.json" type="file.other" enable="0"/>
+<File path="scripts/build_firmware.sh" type="file.other" enable="0"/>
+<File path="prepare_ide.sh" type="file.other" enable="0"/>
+<File path="README.md" type="file.other" enable="0"/>
+</FileList>
+</Project>

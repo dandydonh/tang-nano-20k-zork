@@ -1,0 +1,9 @@
+impl/
+*.gprj.user
+__pycache__/
+
+/zork1.dat
+/assets/*.img
+
+/zork1.dat
+/assets/*.img
