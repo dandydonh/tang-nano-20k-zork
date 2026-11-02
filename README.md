@@ -7,7 +7,7 @@ It runs the supplied `zork1.dat`, release 88 / serial 840726.
 
 The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
 **`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
-the bitstream. Persistent flash programming and verification succeeded on 2026-11-02;
+the bitstream. Persistent flash programming and verification succeeded;
 physical HDMI, keyboard and SD behavior still need observation.
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
