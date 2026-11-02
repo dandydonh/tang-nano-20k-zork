@@ -23,7 +23,7 @@ The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
 **`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
 the bitstream. Persistent flash programming and verification succeeded;
 the corrected serial header is confirmed on hardware in the screenshot below.
-HDMI, PS/2 input, SD save/restore and power-cycle persistence still need
+PS/2 input, SD save/restore and power-cycle persistence still need
 hardware validation.
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
