@@ -64,8 +64,7 @@ The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
 
 Type `save` to save, and `restore` to load the latest valid save. There is one
 logical save slot with two alternating physical snapshots for recovery. Saves
-persist on the SD card across reset and loss of board power. That persistence
-has been simulated; physical power-cycle behavior still requires confirmation.
+persist on the SD card across reset and loss of board power. 
 Save format is private to this firmware, not Frotz/Quetzal compatible.
 
 ### Standalone PS/2 keyboard
