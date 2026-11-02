@@ -5,6 +5,20 @@ GW2AR-LV18QN88C8/I7). No operating system or external computer runs the game.
 The FPGA contains a PicoRV32 processor and a bare-metal Z-machine V3 interpreter.
 It runs the not supplied `zork1.dat`, release 88 / serial 840726.
 
+
+## Clone this project
+
+```bash
+git clone https://github.com/dandydonh/tang-nano-20k-zork.git
+cd tang-nano-20k-zork
+```
+
+See the build instructions below for required tools,
+FPGA programming, and SD card preparation.
+
+Zork I story data is not included.
+
+
 The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
 **`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
 the bitstream. Persistent flash programming and verification succeeded;
