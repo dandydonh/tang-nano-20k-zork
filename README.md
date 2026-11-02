@@ -55,11 +55,12 @@ The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
    microSD card. This replaces the card's partition table and existing contents.
    Copying the image or `zork1.dat` into a normal FAT filesystem does not work.
 2. Insert the card into the board's microSD slot. Leave it inserted during play.
-3. Connect HDMI to a display accepting 1280x720 at 60 Hz.
-4. Connect a keyboard using either method below, and program `impl/pnr/zork.fs`
+3. Connect HDMI to a display accepting 1280x720 at 60 Hz. This step not needed if
+   using serial i/o.
+5. Connect a keyboard using either method below, and program `impl/pnr/zork.fs`
    when ready. The existing `./program_flash.sh` uses device GW2AR-18C,
    cable 4, channel 0, flash operation 9.
-5. Press the reset button on package pin 88 if necessary. The game opens at
+6. Press the reset button on package pin 88 if necessary. The game opens at
    West of House. Enter commands such as `look`, `open mailbox`, `read leaflet`.
 
 Type `save` to save, and `restore` to load the latest valid save. There is one
