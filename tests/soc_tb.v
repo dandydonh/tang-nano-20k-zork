@@ -11,8 +11,9 @@ module soc_tb;
  integer cycles=0,prompts=0,chars=0;
  reg [7:0] previous_serial=0;
  integer serial_newlines=0;
- string terminal_init="\033[0m\033[37;49m\033[2J\033[H";
+ string terminal_init="\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H";
  integer init_position=0,terminal_initializations=0;
+ integer status_updates=0;
  always @(posedge clk)begin
    tr<=text[ta];if(tw)text[ta]<=td;
    if(reset)init_position=0;
@@ -23,7 +24,8 @@ module soc_tb;
            $fatal(1,"terminal startup attributes/clear mismatch at byte %0d",init_position);
          init_position=init_position+1;
          if(init_position==terminal_init.len())terminal_initializations=terminal_initializations+1;
-       end else if(dut.wdata[7:0]==27)$fatal(1,"unexpected terminal escape during gameplay");
+       end
+       if(previous_serial==27&&dut.wdata[7:0]=="8")status_updates=status_updates+1;
        if(dut.wdata[7:0]==10)begin
          if(previous_serial!=13)$fatal(1,"serial LF without CR causes terminal skew");
          serial_newlines=serial_newlines+1;
@@ -52,10 +54,10 @@ module soc_tb;
  initial begin
    $display("Starting firmware/SD integration test");$fflush();
    repeat(20)@(negedge clk);reset=0;
-   wait(prompts==1);repeat(2000)@(negedge clk);
+   wait(prompts==1);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    // PS/2 types LOOK, proving receiver, FIFO, map, editor and interpreter path.
    send_key(8'h4b);send_key(8'h44);send_key(8'h44);send_key(8'h42);send_key(8'h5a);
-   wait(prompts==2);repeat(2000)@(negedge clk);
+   wait(prompts==2);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    // Recall PS/2 LOOK via extended Up; serial Down restores draft "x".
    // Erase draft, recall with SS3 Up and ignore CSI Right, then submit LOOK.
    send_uart("x");send_key(8'he0);send_key(8'h75);
@@ -63,22 +65,22 @@ module soc_tb;
    send_uart(27);send_uart("[");send_uart("B");send_uart(127);
    send_uart(27);send_uart("O");send_uart("A");
    send_uart(27);send_uart("[");send_uart("C");send_uart(13);
-   wait(prompts==3);repeat(2000)@(negedge clk);
+   wait(prompts==3);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("s");send_uart("a");send_uart("v");send_uart("e");send_uart(13);
-   wait(prompts==4);repeat(2000)@(negedge clk);
+   wait(prompts==4);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("n");send_uart(13);
-   wait(prompts==5);repeat(2000)@(negedge clk);
+   wait(prompts==5);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("r");send_uart("e");send_uart("s");send_uart("t");send_uart("o");send_uart("r");send_uart("e");send_uart(13);
-   wait(prompts==6);repeat(2000)@(negedge clk);
+   wait(prompts==6);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("l");send_uart("o");send_uart("o");send_uart("k");send_uart(13);
-   wait(prompts==7);repeat(2000)@(negedge clk);
+   wait(prompts==7);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    // Reset CPU and all peripherals while retaining SD contents, then restore.
    @(negedge clk);reset=1;repeat(20)@(negedge clk);reset=0;
-   wait(prompts==8);repeat(2000)@(negedge clk);
+   wait(prompts==8);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("r");send_uart("e");send_uart("s");send_uart("t");send_uart("o");send_uart("r");send_uart("e");send_uart(13);
-   wait(prompts==9);repeat(2000)@(negedge clk);
+   wait(prompts==9);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    send_uart("l");send_uart("o");send_uart("o");send_uart("k");send_uart(13);
-   wait(prompts==10);repeat(2000)@(negedge clk);
+   wait(prompts==10);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    if(card.writes<2)$fatal(1,"save never wrote SD");
    if(serial_newlines<20)$fatal(1,"serial line ending coverage missing");
    if(terminal_initializations!=2)$fatal(1,"terminal must initialize at boot and reset");

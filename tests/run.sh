@@ -46,27 +46,8 @@ impl/verilator-soc/Vsoc_tb | tee impl/soc-verilator.log
 impl/verilator-soc/Vsoc_tb +sdsc | tee impl/soc-sdsc.log
 python3 - <<'PY'
 from pathlib import Path
-import re
 s=Path('impl/soc-verilator.log').read_text()
 sdsc=Path('impl/soc-sdsc.log').read_text()
-# Reproduce a terminal with gray ANSI palette black but a black default
-# background. Check actual CPU output restores black before erasing the screen.
-for transcript in (s,sdsc):
-    boots=transcript.split('ZORK I - Tang Nano 20K')[:-1]
-    assert len(boots)==2, 'startup/reset coverage missing'
-    for boot in boots:
-        background='gray';reverse=True;cleared=None;homed=False
-        controls=re.findall(r'\x1b\[([0-9;]*)([mJH])',boot)
-        for args,command in controls:
-            if command=='m':
-                for param in map(int,args.split(';')):
-                    if param==0: background='black';reverse=False
-                    elif param==40: background='gray'
-                    elif param==49: background='black'
-            elif command=='J' and args=='2': cleared=background
-            elif command=='H': homed=True
-        assert background=='black' and cleared=='black' and not reverse and homed
-print('PASS startup uses black default background with gray ANSI palette black')
 assert 'PASS soc boot' in sdsc and sdsc.count('West of House')==6
 assert 'PASS soc boot' in s
 assert 'CORE ERROR' not in s
@@ -75,3 +56,4 @@ assert s.count('North of House')==1, s
 assert s.count('Ok.')==3, s
 print('PASS integrated transcript assertions and reset persistence')
 PY
+python3 tests/test_terminal.py

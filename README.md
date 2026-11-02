@@ -8,7 +8,9 @@ It runs the supplied `zork1.dat`, release 88 / serial 840726.
 The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
 **`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
 the bitstream. Persistent flash programming and verification succeeded;
-physical HDMI, keyboard and SD behavior still need observation.
+the corrected serial header is confirmed on hardware in the screenshot below.
+HDMI, PS/2 input, SD save/restore and power-cycle persistence still need
+hardware validation.
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
 Zork story data (`zork1.dat` and copies in SD images) is copyrighted third-party
@@ -17,7 +19,11 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 
 ## Play
 
-![Zork startup screen](zork_startup_screen.png)
+![Zork serial startup screen with a single project title at left and score and moves at right](zork_startup_screen.png)
+
+Serial output from the Tang Nano 20K after the corrected firmware was flashed.
+The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
+**Moves** at the terminal’s right edge; the game transcript scrolls below it.
 
 1. Write `assets/zork-sd.img` as a **whole-card disk image** to a dedicated
    microSD card. This replaces the card's partition table and existing contents.
@@ -73,7 +79,11 @@ the FPGA runs the game. Close the terminal before programming if USB is busy.
 
 At boot/reset, firmware sends ANSI sequences to reset text attributes, select
 white text on the terminal's default background, clear the screen and move to
-the top left before the startup banner. Use ANSI/VT100 terminal emulation with
+row 2 before the startup banner. The fixed first row shows
+`ZORK I - Tang Nano 20K` on the left and score/moves at the right edge of the
+terminal, with one blank column of margin. The project title appears only in
+this header. Values refresh before each command while the transcript scrolls
+below it. Use an ANSI/VT100 terminal at least 80 columns wide with
 a black default background. Palette color 0 is deliberately avoided because
 some themes render it gray even when the default background is black.
 With Minicom inside Terminator, the default background can still resolve to

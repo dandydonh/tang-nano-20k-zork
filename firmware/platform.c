@@ -3,6 +3,8 @@
 #define TEXT ((volatile uint32_t *)0x10000000U)
 static unsigned row=1,column=0;
 static int high_capacity;
+static char status_line[80];
+static void serial_string(const char *s){while(*s)REG(20)=*s++;}
 static void newline(void) {
   column=0;if(++row<32)return;row=31;
   for(unsigned i=80;i<2480;i++)TEXT[i]=TEXT[i+80];
@@ -18,7 +20,22 @@ void console_put(int c) {
   TEXT[row*80+column]=c;
   if(++column==80)newline();
 }
-void status_put(unsigned col,int c){if(col<80)TEXT[col]=c|128;}
+void status_put(unsigned col,int c){if(col<80){TEXT[col]=c|128;status_line[col]=c;}}
+void status_flush(unsigned right_start){
+  unsigned left_end=right_start;
+  while(left_end&&status_line[left_end-1]==' ')left_end--;
+  // Save the input cursor, update the reserved first row, then restore it.
+  serial_string("\0337\033[1;1H\033[2K");
+  for(unsigned i=0;i<left_end;i++)REG(20)=status_line[i];
+  // Clamp to the actual terminal's right edge, leaving one blank column.
+  serial_string("\033[999C\033[");
+  unsigned width=79-right_start,k=0;char digits[3];
+  do{digits[k++]='0'+width%10;width/=10;}while(width);
+  while(k)REG(20)=digits[--k];
+  REG(20)='D';
+  for(unsigned i=right_start;i<79;i++)REG(20)=status_line[i];
+  serial_string("\0338");
+}
 static const uint8_t keymap[128]={
  [0x1c]='a',[0x32]='b',[0x21]='c',[0x23]='d',[0x24]='e',[0x2b]='f',
  [0x34]='g',[0x33]='h',[0x43]='i',[0x3b]='j',[0x42]='k',[0x4b]='l',
@@ -93,9 +110,8 @@ void platform_init(void){
   row=1;column=0;
   // Initialize the serial terminal independently of its previous display state.
   // Keep the terminal's default background: ANSI palette black may be gray.
-  // Reset attributes, select white on default background, clear and home.
-  const char *terminal_init="\033[0m\033[37;49m\033[2J\033[H";
-  while(*terminal_init)REG(20)=*terminal_init++;
+  // Reserve row 1 for status; the scrolling region extends to the terminal bottom.
+  serial_string("\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H");
   for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
   if(!sd_init())fatal("SD initialization failed; insert prepared card and reset");
 }

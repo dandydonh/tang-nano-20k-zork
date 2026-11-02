@@ -141,13 +141,18 @@ static void tokenize(unsigned text,unsigned parse) {
 static void status(void) {
   /* V3 status is separate from the scrolling transcript. */
   for(unsigned i=0;i<80;i++)status_put(i,' ');
-  const char *s="ZORK I                         Score / turns: ";unsigned i=0;
+  const char *s="ZORK I - Tang Nano 20K";unsigned i=0;
   while(*s)status_put(i++,*s++);
+  char right[32];unsigned length=0;
+  s="Score: ";while(*s)right[length++]=*s++;
   for(unsigned g=0;g<2;g++) {
     int n=(int16_t)rw(globals+2+2*g);char b[8];unsigned k=0,v=n<0?-n:n;
-    if(n<0)status_put(i++,'-');do{b[k++]='0'+v%10;v/=10;}while(v);
-    while(k)status_put(i++,b[--k]);if(!g){status_put(i++,' ');status_put(i++,'/');status_put(i++,' ');}
+    if(n<0)right[length++]='-';do{b[k++]='0'+v%10;v/=10;}while(v);
+    while(k)right[length++]=b[--k];if(!g){s="   Moves: ";while(*s)right[length++]=*s++;}
   }
+  unsigned right_start=79-length;
+  for(i=0;i<length;i++)status_put(right_start+i,right[i]);
+  status_flush(right_start);
 }
 static char last_command[120];
 static unsigned last_length;
@@ -291,7 +296,7 @@ static void execute(void) {
   }
 }
 int main(void) {
-  platform_init();say("ZORK I - Tang Nano 20K\nSD story and persistent SAVE / RESTORE\n\n");
+  platform_init();say("SD story and persistent SAVE / RESTORE\n\n");
   if(!disk_read(0,sector_buf)||get32(sector_buf)!=0x44534b5aU)fatal("prepare SD with scripts/make_sd.py");
   restart();while(!stopped)execute();say("\nGame stopped. Press reset to play again.\n");return 0;
 }

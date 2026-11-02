@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 import os
+import re
 from pathlib import Path
 import struct
 import subprocess
 import tempfile
 root=Path(__file__).resolve().parents[1]
-def run(image,commands):
+def run(image,commands,with_status=False):
     env=dict(os.environ,ZORK_SD_IMAGE=str(image))
     p=subprocess.run([root/'impl/zork-host'],input=commands,text=True,capture_output=True,env=env,check=True)
     assert 'CORE ERROR' not in p.stdout,p.stdout
+    if with_status:
+        values=[tuple(map(int,m)) for m in re.findall(r'Score: (-?\d+) +Moves: (\d+)',p.stderr)]
+        assert values, p.stderr
+        return p.stdout,values
     return p.stdout
 with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     image=Path(d)/'card.img'
@@ -45,9 +50,14 @@ with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     assert 'Failed.' in failed and failed.count('North of House')==2,failed
     image.write_bytes(bytes(bad[:256*512])+bytes(128*512)+bytes(bad[384*512:]))
     commands='n\ne\nopen window\nenter window\nw\ntake lamp\ntake sword\nmove rug\nopen trapdoor\nturn on lamp\ndown\nlook\ninventory\nup\ne\nopen sack\ntake lunch\ntake bottle\nscore\n$verify\nquit\ny\n'
-    walk=run(image,commands)
+    walk,values=run(image,commands,with_status=True)
     for expected in ['Kitchen','Living Room','Cellar','A brass lantern','A sword','Your score is']:
         assert expected in walk,(expected,walk)
+    score=re.search(r'Your score is (\d+).*?in (\d+) moves',walk,re.S)
+    assert score,walk
+    reported=tuple(map(int,score.groups()))
+    assert reported[0]>0 and reported in values,(reported,values)
+    assert values[0]==(0,0) and max(moves for _,moves in values)>=18,values
     (root/'impl/host-walkthrough.txt').write_text(walk)
     (root/'impl/host-transcript.txt').write_text(boot+restored+recovered+failed)
     # Optional independent interpreter comparison for deterministic initial moves.
