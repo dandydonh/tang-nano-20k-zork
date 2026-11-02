@@ -512,3 +512,16 @@ validation will require the user-selected keyboard wiring and a prepared SD card
   explicit full-size screenshot link. Original screenshot pixels unchanged.
 - Documentation-only update; no firmware, build or hardware changes. Verified
   image dimensions and relative link target; preparing commit/push to main.
+
+## README screenshot sizing correction, 2026-11-02
+
+- User reports prior wide-table approach still renders too small. Inspected
+  live GitHub HTML: width/height survive sanitization, but CSS caps the image
+  at the shrinking cell width, so a width attribute alone is insufficient.
+- Added a nonbreaking monospace spacer in the image cell to force its minimum
+  width. GitHub's table scroll container can now preserve actual image width.
+- Downloaded current GitHub styles and measured Chrome rendering in an
+  880px content column: before image 854px / scroll width 880px; after image
+  1676px / scroll width 1859px. This verifies a real increase in rendered size.
+- Publishing correction and checking GitHub sanitization next. Original
+  screenshot unchanged; no firmware/build/hardware changes.
