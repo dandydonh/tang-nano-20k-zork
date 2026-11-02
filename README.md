@@ -3,7 +3,7 @@
 A dedicated Zork appliance for the Sipeed Tang Nano 20K (GW2AR-18C,
 GW2AR-LV18QN88C8/I7). No operating system or external computer runs the game.
 The FPGA contains a PicoRV32 processor and a bare-metal Z-machine V3 interpreter.
-It runs the supplied `zork1.dat`, release 88 / serial 840726.
+It runs the not supplied `zork1.dat`, release 88 / serial 840726.
 
 The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
 **`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
