@@ -24,8 +24,7 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 3. Connect HDMI to a display accepting 1280x720 at 60 Hz.
 4. Connect a keyboard using either method below, and program `impl/pnr/zork.fs`
    when ready. The existing `./program_flash.sh` uses device GW2AR-18C,
-   cable 4, channel 0, flash operation 9. In Codex it requires an explicit request
-   to program and escalated execution for USB access.
+   cable 4, channel 0, flash operation 9.
 5. Press the reset button on package pin 88 if necessary. The game opens at
    West of House. Enter commands such as `look`, `open mailbox`, `read leaflet`.
 
