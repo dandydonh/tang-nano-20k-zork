@@ -17,6 +17,8 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 
 ## Play
 
+![Zork startup screen](zork_startup_screen.png)
+
 1. Write `assets/zork-sd.img` as a **whole-card disk image** to a dedicated
    microSD card. This replaces the card's partition table and existing contents.
    Copying the image or `zork1.dat` into a normal FAT filesystem does not work.
