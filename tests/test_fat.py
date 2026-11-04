@@ -48,7 +48,7 @@ def check_fs(path, scratch):
 
 
 FSCK, MKFS, MCOPY, MMD = map(tool, ('fsck.fat', 'mkfs.fat', 'mcopy', 'mmd'))
-subprocess.run(['gcc', '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror',
+subprocess.run(['gcc', '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-misleading-indentation',
                 '-Ifirmware', 'firmware/storage.c', 'tests/storage_tb.c',
                 '-o', 'impl/storage-test'], cwd=ROOT, check=True)
 files = project_files((ROOT/'zork1.dat').read_bytes())
@@ -59,15 +59,15 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
     unrelated.write_text('Unrelated long filename data must survive SAVE and RESTORE.\n')
     for fat in (16, 32):
         for partitioned in (False, True):
-            image.write_bytes(make_image(files, fat, 8 if fat==16 else 64, partitioned))
+            image.write_bytes(make_image(files, fat, 16 if fat==16 else 64, partitioned))
             layout = FatImage(image.read_bytes())
             drive = f'{image}@@{layout.base*512}'
             command([MCOPY, '-i', drive, unrelated, '::/A completely unrelated long filename.txt'])
             # Also put LFN records in the game's directory before save files.
             command([MCOPY, '-i', drive, unrelated, '::/ZORK/Extra notes for this game.txt'])
             layout = FatImage(image.read_bytes())
-            for name, first in (('ZORK1.DAT', 1000), ('SAVEA.BIN', 2000), ('SAVEB.BIN', 2500)):
-                layout.fragment(name, first)
+            for name, first in (('ZORK1.DAT', 11000), ('SAVES.BIN', 12000)):
+                layout.fragment(name, first, stride=2)
             image.write_bytes(layout.data)
             check_fs(image, temp)
             command([ROOT/'impl/storage-test', image])
@@ -92,9 +92,9 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
     (stage/'unrelated.txt').write_bytes(b'keep me')
     command([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage])
     assert (stage/'unrelated.txt').read_bytes() == b'keep me'
-    saved = (stage/'ZORK/SAVEA.BIN').read_bytes()
+    saved = (stage/'ZORK/SAVES.BIN').read_bytes()
     refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage], capture_output=True)
-    assert refused.returncode != 0 and (stage/'ZORK/SAVEA.BIN').read_bytes() == saved
+    assert refused.returncode != 0 and (stage/'ZORK/SAVES.BIN').read_bytes() == saved
     for fat, mib, spc in ((16, 16, 4), (32, 128, 2)):
         with image.open('wb') as stream:
             stream.truncate(mib*1024*1024)
@@ -115,10 +115,13 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         print(f'PASS independent mkfs.fat/mtools FAT{fat}, {spc}-sector clusters and extended directory')
 
     # Use a small image to cover every interruption point in a save cheaply.
-    image.write_bytes(make_image(files, 16, 4, False))
+    image.write_bytes(make_image(files, 16, 8, False))
     play(image, 'save\nnorth\nsave\n')
     baseline = image.read_bytes()
-    for cut in range(41):  # 40 payload sectors, then the commit-header sector.
+    saved_layout = FatImage(baseline)
+    snapshot_bytes = get32(saved_layout.file_bytes('SAVES.BIN'), 8)
+    save_writes = (snapshot_bytes+511)//512+1
+    for cut in range(save_writes):  # Payload sectors, then the commit header.
         image.write_bytes(baseline)
         play(image, 'restore\nwest\nsave\n', cut=cut)
         recovered = play(image, 'restore\nlook\n')
@@ -127,11 +130,11 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
     image.write_bytes(baseline)
     play(image, 'restore\nwest\nsave\n')
     assert play(image, 'restore\nlook\n').count('West of House')==2
-    print('PASS all 41 interrupted-save boundaries retain the previous valid snapshot; complete save commits')
+    print(f'PASS all {save_writes} interrupted-save boundaries retain the previous valid snapshot; complete save commits')
 
     # Torn header and payload writes are rejected by snapshot validation.
     completed = FatImage(image.read_bytes())
-    target = completed.sectors('SAVEA.BIN')
+    target = completed.sectors('SAVES.BIN')[:256]
     for offset in (0, 12, 512+123):
         damaged = bytearray(completed.data)
         damaged[target[offset//512]*512+offset%512] ^= 0x80
@@ -139,31 +142,40 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         assert play(image, 'restore\nlook\n').count('North of House')==1
     print('PASS corrupt commit headers and payloads fall back')
 
-    image.write_bytes(make_image(files, 16, 4, False))
+    image.write_bytes(make_image(files, 16, 8, False))
     valid = FatImage(image.read_bytes())
     bad_cases = []
     def mutation(label, fn):
         candidate = FatImage(valid.data)
         fn(candidate)
         bad_cases.append((label, candidate.data))
-    mutation('missing save', lambda x: x.data.__setitem__(x.file_entry('SAVEA.BIN'), 0xe5))
-    mutation('wrong save size', lambda x: struct.pack_into('<I', x.data, x.file_entry('SAVEA.BIN')+28, 123))
-    mutation('read-only save', lambda x: x.data.__setitem__(x.file_entry('SAVEA.BIN')+11, 0x21))
-    mutation('truncated chain', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVEA.BIN')), x.eoc))
-    mutation('cycle', lambda x: x.set_next(x.chain(x.entry_cluster(x.file_entry('SAVEA.BIN')))[-1], x.entry_cluster(x.file_entry('SAVEA.BIN'))))
-    mutation('free cluster', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVEA.BIN')), 0))
-    mutation('bad cluster', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVEA.BIN')), 0xfff7))
-    mutation('outside volume', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVEA.BIN')), x.clusters+2))
-    mutation('overlapping saves', lambda x: x.set_entry_cluster(x.file_entry('SAVEB.BIN'), x.entry_cluster(x.file_entry('SAVEA.BIN'))))
-    mutation('story/save overlap', lambda x: x.set_entry_cluster(x.file_entry('SAVEA.BIN'), x.chain(x.entry_cluster(x.file_entry('ZORK1.DAT')))[-64]))
-    mutation('directory overlap', lambda x: x.set_next(x.entry_cluster(x.entry('ZORK')), x.entry_cluster(x.file_entry('SAVEA.BIN'))))
+    pool_cases = []
+    def pool_mutation(label, fn):
+        candidate = FatImage(valid.data)
+        fn(candidate)
+        pool_cases.append((label, candidate.data))
+    pool_mutation('missing pool', lambda x: x.data.__setitem__(x.file_entry('SAVES.BIN'), 0xe5))
+    pool_mutation('wrong pool size', lambda x: struct.pack_into('<I', x.data, x.file_entry('SAVES.BIN')+28, 123))
+    pool_mutation('read-only pool', lambda x: x.data.__setitem__(x.file_entry('SAVES.BIN')+11, 0x21))
+    pool_mutation('truncated pool chain', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVES.BIN')), x.eoc))
+    pool_mutation('pool cycle', lambda x: x.set_next(x.chain(x.entry_cluster(x.file_entry('SAVES.BIN')))[-1], x.entry_cluster(x.file_entry('SAVES.BIN'))))
+    pool_mutation('free pool cluster', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVES.BIN')), 0))
+    pool_mutation('bad pool cluster', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVES.BIN')), 0xfff7))
+    pool_mutation('pool outside volume', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVES.BIN')), x.clusters+2))
+    pool_mutation('story/pool overlap', lambda x: x.set_entry_cluster(x.file_entry('SAVES.BIN'), x.entry_cluster(x.file_entry('ZORK1.DAT'))))
+    for label, damaged in pool_cases:
+        image.write_bytes(damaged)
+        command([ROOT/'impl/storage-test', image], expected=3)
+        assert image.read_bytes() == damaged, label
+        assert 'Saves disabled' in play(image, 'save\n')
+    print('PASS missing/malformed/read-only save pools allow play with all writes disabled')
+    mutation('directory overlap', lambda x: x.set_next(x.entry_cluster(x.entry('ZORK')), x.entry_cluster(x.file_entry('SAVES.BIN'))))
     mutation('directory loop', lambda x: x.set_next(x.entry_cluster(x.entry('ZORK')), x.entry_cluster(x.entry('ZORK'))))
     mutation('invalid cluster size', lambda x: x.data.__setitem__(13, 3))
     mutation('wrong sector size', lambda x: struct.pack_into('<H', x.data, 11, 4096))
     mutation('zero FATs', lambda x: x.data.__setitem__(16, 0))
     mutation('too short FAT', lambda x: struct.pack_into('<H', x.data, 22, 1))
     mutation('BPB overflow', lambda x: (struct.pack_into('<H', x.data, 19, 0), struct.pack_into('<I', x.data, 32, 0xffffffff)))
-    mutation('wrong story identity', lambda x: x.data.__setitem__(x.sectors('ZORK1.DAT')[0]*512+18, ord('9')))
     bad_cases.append(('legacy raw', b'ZKSD'+bytes(1024*1024-4)))
     for label, damaged in bad_cases:
         image.write_bytes(damaged)

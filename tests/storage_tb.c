@@ -16,6 +16,8 @@ int sd_write_sector(uint32_t sector, const uint8_t *data) {
   (void)data;
   assert(storage_writable(sector));writes++;return 1;
 }
+void console_put(int c){(void)c;}
+int console_get(void){abort();}
 int main(int argc, char **argv) {
   assert(argc==2 || argc==3);
   image=fopen(argv[1],"rb");assert(image);
@@ -29,24 +31,26 @@ int main(int argc, char **argv) {
     return 2;
   }
   for(unsigned file=0;file<3;file++) {
-    unsigned size=file?64:180;
+    unsigned size=file?STORAGE_BANK_SECTORS:(storage_story_size()+511)/512;
+    if(file&&!storage_saves_available())break;
     for(unsigned sector=0;sector<size;sector++)assert(storage_read(file,sector,data));
     assert(!storage_read(file,size,data));
   }
+  if(!storage_saves_available()){assert(!storage_write(0,0,data));fclose(image);return 3;}
   assert(!storage_read(3,0,data));
   assert(!storage_read(UINT32_MAX,0,data));
-  assert(!storage_write(0,64,data));
+  assert(!storage_write(0,STORAGE_BANK_SECTORS,data));
   assert(!storage_write(2,0,data));
   assert(!storage_write(UINT32_MAX,0,data));
   assert(!storage_writable(0)&&!storage_writable(UINT32_MAX));
   for(unsigned bank=0;bank<2;bank++)
-    for(unsigned sector=0;sector<64;sector++)assert(storage_write(bank,sector,data));
-  assert(writes==128);
+    for(unsigned sector=0;sector<STORAGE_BANK_SECTORS;sector++)assert(storage_write(bank,sector,data));
+  assert(writes==2*STORAGE_BANK_SECTORS);
   /* A failed remount must revoke every previous write authorization. */
   fail_sector=0;
   assert(!storage_init());
   assert(!storage_write(0,0,data));
-  assert(writes==128);
+  assert(writes==2*STORAGE_BANK_SECTORS);
   fclose(image);
   puts("PASS storage bounds, write authorization and failed-remount revocation");
   return 0;

@@ -89,10 +89,10 @@ class FatImage:
         entry = self.file_entry(name)
         return b''.join(self.data[s*512:(s+1)*512] for s in self.sectors(name))[:get32(self.data, entry+28)]
 
-    def fragment(self, name, first):
+    def fragment(self, name, first, stride=3):
         entry = self.file_entry(name)
         old = self.chain(self.entry_cluster(entry))
-        new = [first+3*i for i in range(len(old))]
+        new = [first+stride*i for i in range(len(old))]
         for cluster in new:
             assert self.next(cluster) == 0
         for src, dst in zip(old, new):
@@ -110,7 +110,7 @@ class FatImage:
                 struct.pack_into('<I', self.data, (self.base+sector)*512+492, 0xffffffff)
 
     def assert_only_saves_changed(self, before):
-        allowed = set(self.sectors('SAVEA.BIN')+self.sectors('SAVEB.BIN'))
+        allowed = set(self.sectors('SAVES.BIN'))
         assert len(before) == len(self.data)
         for sector in range(len(before)//512):
             if sector not in allowed:

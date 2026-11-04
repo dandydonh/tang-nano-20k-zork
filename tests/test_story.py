@@ -18,7 +18,7 @@ def run(image,commands,with_status=False):
     return p.stdout
 with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     image=Path(d)/'card.img'
-    subprocess.run(['python3',root/'scripts/make_sd.py','--output',image,'--fat','16','--size-mib','4'],check=True,capture_output=True)
+    subprocess.run(['python3',root/'scripts/make_sd.py','--output',image,'--fat','16','--size-mib','8'],check=True,capture_output=True)
     # Recall submits only on Enter; Down restores a draft. CSI parameters and
     # unsupported navigation keys must never leak into the game's parser.
     history=run(image,'look\n\x1b[A\n\x1bOA\nopen mailbox\x1b[A\x1b[B\n'
@@ -40,9 +40,9 @@ with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     layout=FatImage(second)
     layout.assert_only_saves_changed(original)
     assert layout.file_bytes('ZORK1.DAT')==(root/'zork1.dat').read_bytes()
-    assert layout.file_bytes('SAVEA.BIN')[:4]==b'ZMV3'
-    assert layout.file_bytes('SAVEB.BIN')[:4]==b'ZMV3'
-    bank_a=layout.sectors('SAVEA.BIN');bank_b=layout.sectors('SAVEB.BIN')
+    assert layout.file_bytes('SAVES.BIN')[:4]==b'ZMV5'
+    assert layout.file_bytes('SAVES.BIN')[131072:131076]==b'ZMV5'
+    pool=layout.sectors('SAVES.BIN');bank_a=pool[:256];bank_b=pool[256:512]
     # Corrupt newest bank payload: restore must fall back to the previous snapshot.
     bad=bytearray(second);bad[bank_b[1]*512+123]^=128;image.write_bytes(bad)
     recovered=run(image,'restore\nlook\ninventory\n')

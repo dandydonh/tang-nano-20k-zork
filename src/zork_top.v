@@ -7,7 +7,12 @@ module zork_top (
     output wire [2:0] hdmi_data_n,
     input wire uart_rx, ps2_clk, ps2_data, sd_miso,
     output wire uart_tx, sd_clk, sd_mosi, sd_cs,
-    output wire led_n
+    output wire led_n,
+    // Gowin reserves these names for the SDRAM inside the GW2AR package.
+    output wire O_sdram_clk,O_sdram_cke,O_sdram_cs_n,
+    output wire O_sdram_ras_n,O_sdram_cas_n,O_sdram_wen_n,
+    output wire [10:0] O_sdram_addr,output wire [1:0] O_sdram_ba,
+    output wire [3:0] O_sdram_dqm,inout wire [31:0] IO_sdram_dq
 );
   wire serial_clk, pixel_clk, locked;
   // 27 / 4 * 55 = 371.25 MHz; DDR serialization = 742.5 Mb/s.
@@ -44,7 +49,11 @@ module zork_top (
   zork_soc soc(.clk(clk_27mhz),.reset(cpu_reset),.uart_rx(uart_rx),.uart_tx(uart_tx),
     .ps2_clk(ps2_clk),.ps2_data(ps2_data),.sd_miso(sd_miso),.sd_clk(sd_clk),
     .sd_mosi(sd_mosi),.sd_cs(sd_cs),.trap(trap),.text_addr(text_addr),
-    .text_data(text_data),.text_write(text_write),.text_read(text_read));
+    .text_data(text_data),.text_write(text_write),.text_read(text_read),
+    .O_sdram_clk(O_sdram_clk),.O_sdram_cke(O_sdram_cke),.O_sdram_cs_n(O_sdram_cs_n),
+    .O_sdram_ras_n(O_sdram_ras_n),.O_sdram_cas_n(O_sdram_cas_n),
+    .O_sdram_wen_n(O_sdram_wen_n),.O_sdram_addr(O_sdram_addr),
+    .O_sdram_ba(O_sdram_ba),.O_sdram_dqm(O_sdram_dqm),.IO_sdram_dq(IO_sdram_dq));
   text_video video (.pixel_clk(pixel_clk), .reset(reset),.cpu_clk(clk_27mhz),
     .cpu_addr(text_addr),.cpu_data(text_data),.cpu_write(text_write),.cpu_read(text_read),
     .rgb(rgb), .de(de), .hsync(hs), .vsync(vs));

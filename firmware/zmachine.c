@@ -1,28 +1,31 @@
 /* Dedicated version 3 Z-machine interpreter. All story addresses are byte addresses. */
 #include "platform.h"
 #include "storage.h"
-#define DYNAMIC_MAX 12288
 #define STACK_MAX 2048
 #define FRAME_MAX 96
-#define STORY_SECTORS 180
-#define SAVE_MAGIC 0x33564d5aU
+#define SAVE_MAGIC STORAGE_SAVE_MAGIC
 struct frame { uint32_t pc; uint16_t base; uint8_t result, pad; uint16_t locals[15]; };
 struct machine {
   uint32_t pc, random;
   uint16_t sp, depth;
-  uint8_t dynamic[DYNAMIC_MAX];
   uint16_t stack[STACK_MAX];
   struct frame frames[FRAME_MAX];
 };
 static struct machine vm;
-static uint8_t cache[32][512], sector_buf[512];
-static uint32_t cache_tags[32];
-static void invalidate_cache(void) { for(unsigned i=0;i<32;i++)cache_tags[i]=~0U; }
+typedef char snapshot_fits_bank[(sizeof(struct machine)+V3_DYNAMIC_MAX+511)/512+1<=STORAGE_BANK_SECTORS?1:-1];
+#ifdef HOST
+static uint8_t story_image[V3_STORY_MAX], dynamic_memory[65536];
+#else
+/* Pristine image retained for restart/verify; mutable image in a separate region. */
+#define story_image ((volatile uint8_t *)0x30000000U)
+#define dynamic_memory ((volatile uint8_t *)0x30020000U)
+#endif
+static uint8_t sector_buf[512];
 static uint16_t dynamic_size, objects, globals, dictionary, abbreviations;
 static int stopped, output_window, split_lines;
 static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ \n0123456789.,!?_#'\"/\\-:()";
 static void say(const char *s) { while (*s) console_put(*s++); }
-void fatal(const char *s) { say("\nCORE ERROR: "); say(s); say("\n"); stopped=1;
+void fatal(const char *s) { console_story_flush();say("\nCORE ERROR: "); say(s); say("\n"); stopped=1;
 #ifdef HOST
   extern void exit(int); exit(2);
 #else
@@ -30,17 +33,12 @@ void fatal(const char *s) { say("\nCORE ERROR: "); say(s); say("\n"); stopped=1;
 #endif
 }
 static uint8_t story(uint32_t a) {
-  if(a >= STORY_SECTORS*512U) { fatal("story address"); return 0; }
-  unsigned tag=a/512,line=tag&31;
-  if (cache_tags[line] != tag) {
-    if (!storage_read(STORAGE_STORY,tag,cache[line])) fatal("SD story read");
-    cache_tags[line]=tag;
-  }
-  return cache[line][a&511];
+  if(a >= storage_story_size()) { fatal("story address"); return 0; }
+  return story_image[a];
 }
-static uint8_t rb(uint32_t a) { return a<dynamic_size ? vm.dynamic[a] : story(a); }
+static uint8_t rb(uint32_t a) { return a<dynamic_size ? dynamic_memory[a] : story(a); }
 static uint16_t rw(uint32_t a) { return (rb(a)<<8)|rb(a+1); }
-static void wb(uint32_t a,uint16_t v) { if(a>=dynamic_size) fatal("write outside dynamic memory"); vm.dynamic[a]=(uint8_t)v; }
+static void wb(uint32_t a,uint16_t v) { if(a>=dynamic_size) fatal("write outside dynamic memory"); dynamic_memory[a]=(uint8_t)v; }
 static void ww(uint32_t a,uint16_t v) { wb(a,v>>8);wb(a+1,v); }
 static uint8_t fetch(void) { return rb(vm.pc++); }
 static uint16_t fetchw(void) { uint16_t v=fetch();return (v<<8)|fetch(); }
@@ -83,7 +81,7 @@ static uint32_t prop_find(unsigned n,unsigned p) {
   uint32_t a=prop_start(n);while(rb(a) && (rb(a)&31)>p)a+=2+(rb(a)>>5);
   return (rb(a)&31)==p ? a : 0;
 }
-static void zout(int c) { if(!output_window)console_put(c==13?'\n':c); }
+static void zout(int c) { if(!output_window)console_story_put(c==13?'\n':c); }
 static uint32_t ztext(uint32_t a,unsigned depth) {
   if(depth>8)fatal("abbreviation recursion");
   int shift=0,abbrev=0,escape=0;unsigned high=0;
@@ -138,16 +136,25 @@ static void tokenize(unsigned text,unsigned parse) {
   wb(parse+1,count);
 }
 static void status(void) {
+  console_story_flush();
   /* V3 status is separate from the scrolling transcript. */
   for(unsigned i=0;i<80;i++)status_put(i,' ');
-  const char *s="ZORK I - Tang Nano 20K";unsigned i=0;
+  const char *s=storage_story_name();unsigned i=0;
   while(*s)status_put(i++,*s++);
+  s=" - Tang Nano 20K";while(*s)status_put(i++,*s++);
   char right[32];unsigned length=0;
+  if(rb(1)&2) {
+    s="Time: ";while(*s)right[length++]=*s++;
+    unsigned hour=rw(globals+2)%24,minute=rw(globals+4)%60;
+    right[length++]='0'+hour/10;right[length++]='0'+hour%10;right[length++]=':';
+    right[length++]='0'+minute/10;right[length++]='0'+minute%10;
+  } else {
   s="Score: ";while(*s)right[length++]=*s++;
   for(unsigned g=0;g<2;g++) {
     int n=(int16_t)rw(globals+2+2*g);char b[8];unsigned k=0,v=n<0?-n:n;
     if(n<0)right[length++]='-';do{b[k++]='0'+v%10;v/=10;}while(v);
     while(k)right[length++]=b[--k];if(!g){s="   Moves: ";while(*s)right[length++]=*s++;}
+  }
   }
   unsigned right_start=79-length;
   for(i=0;i<length;i++)status_put(right_start+i,right[i]);
@@ -192,47 +199,62 @@ static void read_line(unsigned text,unsigned parse) {
 static uint32_t hash_bytes(uint32_t hash,const uint8_t *p,unsigned n) { while(n--)hash=(hash^*p++)*16777619U;return hash; }
 static uint32_t get32(const uint8_t *p) { return p[0]|(p[1]<<8)|(p[2]<<16)|((uint32_t)p[3]<<24); }
 static void put32(uint8_t *p,uint32_t n) { for(unsigned i=0;i<4;i++)p[i]=n>>(8*i); }
+static unsigned snapshot_size(void) { return sizeof(vm)+dynamic_size; }
+static uint8_t snapshot_byte(unsigned off) {
+  return off<sizeof(vm)?((const uint8_t*)&vm)[off]:dynamic_memory[off-sizeof(vm)];
+}
+static void restore_byte(unsigned off,uint8_t value) {
+  if(off<sizeof(vm))((uint8_t*)&vm)[off]=value;else dynamic_memory[off-sizeof(vm)]=value;
+}
 static int save_header(unsigned bank,uint32_t *generation,uint32_t *hash) {
   if(!storage_read(STORAGE_SAVE_A+bank,0,sector_buf))return 0;
-  if(get32(sector_buf)!=SAVE_MAGIC||get32(sector_buf+8)!=sizeof(vm)||get32(sector_buf+16)!=0x84072658U)return 0;
+  if(get32(sector_buf)!=SAVE_MAGIC||get32(sector_buf+8)!=snapshot_size())return 0;
+  for(unsigned i=0;i<STORAGE_ID_BYTES;i++)if(sector_buf[16+i]!=storage_story_id()[i])return 0;
   *generation=get32(sector_buf+4);*hash=get32(sector_buf+12);return 1;
 }
 static int save_game(void) {
+  console_story_flush();
+  if(!storage_saves_available())return 0;
   uint32_t gen[2]={0,0},h;int ok[2];for(unsigned i=0;i<2;i++)ok[i]=save_header(i,&gen[i],&h);
   unsigned newest=ok[1]&&(!ok[0]||(int32_t)(gen[1]-gen[0])>0);unsigned target=(ok[0]||ok[1])?newest^1:0;
-  uint32_t hash=hash_bytes(2166136261U,(const uint8_t*)&vm,sizeof(vm));
-  for(unsigned offset=0;offset<sizeof(vm);offset+=512) {
-    for(unsigned j=0;j<512;j++)sector_buf[j]=offset+j<sizeof(vm)?((uint8_t*)&vm)[offset+j]:0;
+  uint32_t hash=2166136261U;unsigned size=snapshot_size();
+  for(unsigned offset=0;offset<size;offset+=512) {
+    unsigned n=size-offset;if(n>512)n=512;
+    for(unsigned j=0;j<512;j++)sector_buf[j]=j<n?snapshot_byte(offset+j):0;
+    hash=hash_bytes(hash,sector_buf,n);
     if(!storage_write(target,1+offset/512,sector_buf))return 0;
   }
   for(unsigned i=0;i<512;i++)sector_buf[i]=0;
-  put32(sector_buf,SAVE_MAGIC);put32(sector_buf+4,gen[newest]+1);put32(sector_buf+8,sizeof(vm));
-  put32(sector_buf+12,hash);put32(sector_buf+16,0x84072658U);
+  put32(sector_buf,SAVE_MAGIC);put32(sector_buf+4,gen[newest]+1);put32(sector_buf+8,size);
+  put32(sector_buf+12,hash);
+  for(unsigned i=0;i<STORAGE_ID_BYTES;i++)sector_buf[16+i]=storage_story_id()[i];
   return storage_write(target,0,sector_buf);
 }
 static int restore_game(void) {
+  console_story_flush();
   uint32_t gen[2]={0,0},hash[2];int ok[2];for(unsigned i=0;i<2;i++)ok[i]=save_header(i,&gen[i],&hash[i]);
   unsigned newest=ok[1]&&(!ok[0]||(int32_t)(gen[1]-gen[0])>0);
   for(unsigned pass=0;pass<2;pass++) {
     unsigned bank=newest^pass;if(!ok[bank])continue;
     uint32_t sum=2166136261U;
     /* Check entire snapshot before changing the live VM. */
-    int valid=1;for(unsigned off=0;off<sizeof(vm);off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf)){valid=0;break;}
-      unsigned n=sizeof(vm)-off;if(n>512)n=512;sum=hash_bytes(sum,sector_buf,n);}
+    unsigned size=snapshot_size();
+    int valid=1;for(unsigned off=0;off<size;off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf)){valid=0;break;}
+      unsigned n=size-off;if(n>512)n=512;sum=hash_bytes(sum,sector_buf,n);}
     if(!valid||sum!=hash[bank])continue;
-    for(unsigned off=0;off<sizeof(vm);off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf))fatal("restore SD read");
-      for(unsigned j=0;j<512&&off+j<sizeof(vm);j++)((uint8_t*)&vm)[off+j]=sector_buf[j];}
-    invalidate_cache();output_window=0;return 1;
+    for(unsigned off=0;off<size;off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf))fatal("restore SD read");
+      for(unsigned j=0;j<512&&off+j<size;j++)restore_byte(off+j,sector_buf[j]);}
+    output_window=0;return 1;
   }
   return 0;
 }
 static void restart(void) {
   for(unsigned i=0;i<sizeof(vm);i++)((uint8_t*)&vm)[i]=0;
-  invalidate_cache();dynamic_size=0;dynamic_size=(story(14)<<8)|story(15);
-  if(dynamic_size>DYNAMIC_MAX||story(0)!=3)fatal("requires supplied V3 story");
-  for(unsigned i=0;i<dynamic_size;i++)vm.dynamic[i]=story(i);
+  dynamic_size=0;dynamic_size=(story(14)<<8)|story(15);
+  if(dynamic_size<64||story(0)!=3)fatal("incompatible V3 story memory");
+  for(unsigned i=0;i<dynamic_size;i++)dynamic_memory[i]=story(i);
   objects=rw(10);globals=rw(12);dictionary=rw(8);abbreviations=rw(24);vm.pc=rw(6);vm.random=0x12345678;
-  vm.dynamic[1]=(vm.dynamic[1]&~0x70); /* status available, split unavailable, variable pitch unavailable */
+  dynamic_memory[1]=(dynamic_memory[1]&~0x70); /* status available, split unavailable, variable pitch unavailable */
   output_window=0;split_lines=0;stopped=0;
 }
 static uint16_t operand(unsigned type) { if(type==0)return fetchw();unsigned b=fetch();return type==2?variable(b,0):b; }
@@ -249,7 +271,7 @@ static void execute(void) {
     case 4:break;case 5:branch(save_game());break;case 6:if(restore_game())branch(1);else branch(0);break;
     case 7:restart();break;case 8:ret(pop());break;case 9:pop();break;case 10:stopped=1;break;
     case 11:zout('\n');break;case 12:status();break;
-    case 13:{unsigned sum=0;for(unsigned i=64;i<2U*rw(26);i++)sum+=story(i);branch((uint16_t)sum==rw(28));break;}
+    case 13:{unsigned sum=0;for(unsigned i=64;i<(rw(26)?2U*rw(26):storage_story_size());i++)sum+=story(i);branch((uint16_t)sum==rw(28));break;}
     default:fatal("unknown 0OP");
   }
   else if(group==1)switch(op) {
@@ -289,13 +311,18 @@ static void execute(void) {
     case 4:read_line(x,y);break;case 5:zout(x);break;case 6:number(sx);break;
     case 7:if(sx<=0){vm.random=sx?-(int)sx:0x12345678;store(0);}else{vm.random^=vm.random<<13;vm.random^=vm.random>>17;vm.random^=vm.random<<5;store(vm.random%x+1);}break;
     case 8:push(x);break;case 9:setvar(x,pop(),1);break;
-    case 10:split_lines=x;break;case 11:output_window=x&&split_lines;break;
+    case 10:console_story_flush();split_lines=x;break;case 11:console_story_flush();output_window=x&&split_lines;break;
     case 19:break; /* output_stream: transcript/printer unavailable */
     case 20:break;case 21:break;default:fatal("unknown VAR");
   }
 }
 int main(void) {
   platform_init();say("SD story and persistent SAVE / RESTORE\n\n");
-  if(!storage_init())fatal("requires FAT16/FAT32: ZORK/ZORK1.DAT and two 32768-byte SAVEA.BIN/SAVEB.BIN files");
-  restart();while(!stopped)execute();say("\nGame stopped. Press reset to play again.\n");return 0;
+  if(!storage_init())fatal("requires FAT16/FAT32 and a compatible V3 DAT in /ZORK");
+  for(unsigned off=0;off<storage_story_size();off+=512) {
+    if(!storage_read(STORAGE_STORY,off/512,sector_buf))fatal("SD story read");
+    unsigned n=storage_story_size()-off;if(n>512)n=512;
+    for(unsigned i=0;i<n;i++)story_image[off+i]=sector_buf[i];
+  }
+  restart();while(!stopped)execute();console_story_flush();say("\nGame stopped. Press reset to play again.\n");return 0;
 }

@@ -2,7 +2,11 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
  output wire uart_tx,sd_clk,sd_mosi,output reg sd_cs,
  output wire trap,
  output wire [11:0] text_addr,output wire [7:0] text_data,output wire text_write,
- input wire [7:0] text_read);
+ input wire [7:0] text_read,
+ output wire O_sdram_clk,O_sdram_cke,O_sdram_cs_n,
+ output wire O_sdram_ras_n,O_sdram_cas_n,O_sdram_wen_n,
+ output wire [10:0] O_sdram_addr,output wire [1:0] O_sdram_ba,
+ output wire [3:0] O_sdram_dqm,inout wire [31:0] IO_sdram_dq);
   wire valid,instr;reg ready;wire [31:0] addr,wdata;reg [31:0] rdata;wire [3:0] wstrb;
   picorv32 #(.ENABLE_COUNTERS(0),.ENABLE_MUL(1),.ENABLE_DIV(1),.BARREL_SHIFTER(1),
     .PROGADDR_RESET(0),.STACKADDR(65536)) cpu (
@@ -25,6 +29,15 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
   assign text_addr=addr[13:2];assign text_data=wdata[7:0];
   assign text_write=text_access&&wstrb[0];
   wire io_access=valid&&!ready&&addr[31:16]==16'h2000;
+  wire sdram_access=valid&&!ready&&addr[31:23]==9'h060;
+  wire sdram_done,sdram_initialized;wire [31:0] sdram_data;
+  sdram_controller memory(.clk(clk),.reset(reset),.request(sdram_access),
+    .address(addr[22:0]),.write_data(wdata),.write_mask(wstrb),
+    .read_data(sdram_data),.done(sdram_done),.initialized(sdram_initialized),
+    .O_sdram_clk(O_sdram_clk),.O_sdram_cke(O_sdram_cke),.O_sdram_cs_n(O_sdram_cs_n),
+    .O_sdram_ras_n(O_sdram_ras_n),.O_sdram_cas_n(O_sdram_cas_n),
+    .O_sdram_wen_n(O_sdram_wen_n),.O_sdram_addr(O_sdram_addr),
+    .O_sdram_ba(O_sdram_ba),.O_sdram_dqm(O_sdram_dqm),.IO_sdram_dq(IO_sdram_dq));
   wire io_write=io_access&&|wstrb;
   wire [7:0] urx,pkey,ufront,pfront;wire ustrobe,pstrobe,uvalid,pvalid,uover,pover;
   wire tx_busy;
@@ -41,7 +54,7 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
   reg [1:0] read_kind;
   // rdata is overridden by the synchronous RAM/display output during response.
   always @*begin
-    case(read_kind)0:rdata=ram_data;1:rdata={24'b0,text_read};default:rdata=io_data;endcase
+    case(read_kind)0:rdata=ram_data;1:rdata={24'b0,text_read};3:rdata=sdram_data;default:rdata=io_data;endcase
   end
   reg [31:0] io_data;
   always @(posedge clk)begin
@@ -50,6 +63,7 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
     else if(valid&&!ready)begin
       if(ram_access)begin ready<=1;read_kind<=0;end
       else if(text_access)begin ready<=1;read_kind<=1;end
+      else if(sdram_access)begin read_kind<=3;if(sdram_done)ready<=1;end
       else if(io_access)begin
         read_kind<=2;io_data<=0;
         case(addr[7:0])
@@ -59,6 +73,7 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
           12:begin ready<=1;io_data<={24'b0,spi_div};if(io_write)spi_div<=wdata[7:0];end
           16:begin ready<=1;io_data<={22'b0,pover,pvalid,pfront};end
           20:begin if(!tx_busy)ready<=1;end
+          24:begin ready<=1;io_data<={31'b0,sdram_initialized};end
           default:ready<=1;
         endcase
       end

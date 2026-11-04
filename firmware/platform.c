@@ -11,7 +11,7 @@ static void newline(void) {
   for(unsigned i=80;i<2480;i++)TEXT[i]=TEXT[i+80];
   for(unsigned i=2480;i<2560;i++)TEXT[i]=' ';
 }
-void console_put(int c) {
+void console_emit(int c) {
   // Serial terminals need CR+LF; the HDMI console handles LF below.
   if(c=='\n')REG(20)='\r';
   REG(20)=c;
@@ -19,7 +19,13 @@ void console_put(int c) {
   if(c==8){if(column){column--;TEXT[row*80+column]=' ';}return;}
   if(c<32||c>126)return;
   TEXT[row*80+column]=c;
-  if(++column==80)newline();
+  column++;
+}
+int console_previous_line(void) {
+  if(row<=1)return 0;
+  row--;column=CONSOLE_COLUMNS-1;
+  serial_string("\033[1A\033[78C");
+  return 1;
 }
 void status_put(unsigned col,int c){if(col<80){TEXT[col]=c|128;status_line[col]=c;}}
 void status_flush(unsigned right_start){
@@ -50,6 +56,7 @@ static const uint8_t keymap[128]={
 };
 int console_get(void) {
   static unsigned shifts,release,extended,caps,previous_cr;
+  console_story_flush();
   for(;;) {
     uint32_t v=REG(0);
     if(v&256){int c=v&255;if(c==10&&previous_cr){previous_cr=0;continue;}previous_cr=c==13;return c;}
@@ -109,13 +116,36 @@ int sd_write_sector(uint32_t sector,const uint8_t *data){
   for(unsigned i=0;i<200000;i++)if(spi(255)==255){deselect();return 1;}
   deselect();return 0;
 }
+static void check_sdram(void) {
+  unsigned wait;
+  for(wait=0;wait<100000&&!REG(24);wait++){}
+  if(!REG(24))fatal("SDRAM initialization timeout");
+  volatile uint32_t *memory=(volatile uint32_t*)0x30000000U;
+  /* Walking data and byte enables, then simultaneous address-line probes.
+   * A broken upper address line must not silently alias the live story. */
+  for(unsigned bit=0;bit<32;bit++) {
+    memory[0]=1U<<bit;if(memory[0]!=(1U<<bit))fatal("SDRAM data test");
+    memory[0]=~(1U<<bit);if(memory[0]!=~(1U<<bit))fatal("SDRAM data test");
+  }
+  memory[0]=0;
+  volatile uint8_t *bytes=(volatile uint8_t*)memory;
+  for(unsigned i=0;i<4;i++)bytes[i]=0x12+0x21*i;
+  if(memory[0]!=0x75543312U)fatal("SDRAM byte enables");
+  memory[0]=0xa55a1234U;
+  for(unsigned bit=0;bit<21;bit++)memory[1U<<bit]=0x31415926U^bit;
+  memory[2097151]=0x89abcdefU;
+  if(memory[0]!=0xa55a1234U||memory[2097151]!=0x89abcdefU)fatal("SDRAM address test");
+  for(unsigned bit=0;bit<21;bit++)if(memory[1U<<bit]!=(0x31415926U^bit))fatal("SDRAM address alias");
+}
 void platform_init(void){
   row=1;column=0;
+  console_reset();
   // Initialize the serial terminal independently of its previous display state.
   // Keep the terminal's default background: ANSI palette black may be gray.
   // Reserve row 1 for status; the scrolling region extends to the terminal bottom.
   serial_string("\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H");
   for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
+  check_sdram();
   if(!sd_init())fatal("SD initialization failed; insert prepared card and reset");
 }
 /* Freestanding compiler helpers. */

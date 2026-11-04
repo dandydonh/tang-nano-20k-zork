@@ -1,41 +1,42 @@
-/* Bounded FAT16/FAT32 reader with writes confined to two existing save files.
- * File chains are resolved once at boot, including fragmented allocations.
- * The card must remain inserted and exclusively owned until reset/power off.
- */
+/* FAT16/FAT32 V3 story discovery. Only the selected save-slot data is writable.
+ * No filesystem metadata writes, allocation or hot swapping. */
 #include "platform.h"
 #include "storage.h"
-
-#define STORY_SECTORS 180U
-#define SAVE_SECTORS 64U
-#define MAP_SECTORS (STORY_SECTORS + 2 * SAVE_SECTORS)
+#define STORY_SECTORS (V3_FILE_MAX/512U)
+#define SAVE_SECTORS STORAGE_BANK_SECTORS
+#define MAP_SECTORS (STORY_SECTORS+2*SAVE_SECTORS)
 #define DIR_SECTOR_LIMIT 256U
-static uint32_t sector_map[MAP_SECTORS];
-static uint8_t buf[512];
-static uint8_t fat_buf[512];
-static uint32_t fat_cached_sector;
-static uint32_t fat_start, data_start, cluster_count, root_start, root_sectors;
-static unsigned sectors_per_cluster, fat32, ready;
+#define DIR_EXTENTS 32U
+#define STORY_LIMIT STORAGE_STORY_LIMIT
+static uint32_t sector_map[MAP_SECTORS], save_headers[STORAGE_SAVE_SLOTS*2];
+static uint8_t buf[512], fat_buf[512], story_id[STORAGE_ID_BYTES];
+static uint32_t fat_cached_sector, fat_start, data_start, cluster_count, root_start, root_sectors;
+static uint32_t story_bytes;
+static unsigned sectors_per_cluster, fat32, ready, saves_ready, story_sectors, story_count, chosen, save_slots;
 struct entry { uint32_t cluster, size; unsigned attr; };
-static const char names[4][12] = {"ZORK       ", "ZORK1   DAT", "SAVEA   BIN", "SAVEB   BIN"};
-
-static uint32_t u16(const uint8_t *p) { return p[0] | ((uint32_t)p[1] << 8); }
-static uint32_t u32(const uint8_t *p) { return u16(p) | (u16(p+2) << 16); }
-static int cluster_valid(uint32_t c) {
-  return c >= 2 && c - 2 < cluster_count && c < (fat32 ? 0x0ffffff0U : 0xfff0U);
+struct candidate { struct entry file; char name[13]; const char *error; };
+static struct candidate stories[STORY_LIMIT];
+static struct entry pool;
+static struct { uint32_t start, size; } directories[DIR_EXTENTS];
+static unsigned directory_count;
+static uint32_t u16(const uint8_t *p) { return p[0]|((uint32_t)p[1]<<8); }
+static uint32_t u32(const uint8_t *p) { return u16(p)|(u16(p+2)<<16); }
+static unsigned be16(const uint8_t *p) { return ((unsigned)p[0]<<8)|p[1]; }
+static void say(const char *p) { while(*p)console_put(*p++); }
+static int equal(const uint8_t *a,const uint8_t *b,unsigned n) {
+  while(n--)if(*a++!=*b++)return 0;return 1;
 }
-static int chain_end(uint32_t c) { return c >= (fat32 ? 0x0ffffff8U : 0xfff8U); }
-static uint32_t cluster_sector(uint32_t c) { return data_start + (c-2)*sectors_per_cluster; }
-static int next_cluster(uint32_t c, uint32_t *next) {
-  unsigned width = fat32 ? 4 : 2;
-  uint32_t offset = c * width;
-  uint32_t sector = fat_start + offset/512;
-  if (!cluster_valid(c)) return 0;
-  if (fat_cached_sector != sector) {
-    if (!sd_read_sector(sector, fat_buf)) return 0;
-    fat_cached_sector = sector;
-  }
-  *next = fat32 ? u32(fat_buf + offset%512) & 0x0fffffffU : u16(fat_buf + offset%512);
-  return cluster_valid(*next) || chain_end(*next);
+static int cluster_valid(uint32_t c) {
+  return c>=2&&c-2<cluster_count&&c<(fat32?0x0ffffff0U:0xfff0U);
+}
+static int chain_end(uint32_t c) { return c>=(fat32?0x0ffffff8U:0xfff8U); }
+static uint32_t cluster_sector(uint32_t c) { return data_start+(c-2)*sectors_per_cluster; }
+static int next_cluster(uint32_t c,uint32_t *next) {
+  unsigned width=fat32?4:2;uint32_t offset=c*width,sector=fat_start+offset/512;
+  if(!cluster_valid(c))return 0;
+  if(fat_cached_sector!=sector){if(!sd_read_sector(sector,fat_buf))return 0;fat_cached_sector=sector;}
+  *next=fat32?u32(fat_buf+offset%512)&0x0fffffffU:u16(fat_buf+offset%512);
+  return cluster_valid(*next)||chain_end(*next);
 }
 
 /* BPB geometry is checked before any derived address can be used. */
@@ -77,124 +78,219 @@ static int mount_volume(uint32_t base, uint32_t partition_size) {
   return 1;
 }
 
-/* Three fixed 8.3 names; VFAT entries and unrelated files are ignored.
- * Bound directory walks so damaged/cyclic media cannot hang startup. */
-static int directory(uint32_t start, int fixed_root, unsigned first, unsigned count,
-                     struct entry *entries) {
-  unsigned found = 0, walked = 0;
-  uint32_t c = start;
+
+static struct entry entry_at(const uint8_t *p) {
+  struct entry e={u16(p+26)|(fat32?u16(p+20)<<16:0),u32(p+28),p[11]};return e;
+}
+/* mode 0 finds ZORK, mode 1 collects DATs and the optional save pool. */
+static int directory(uint32_t start,int fixed_root,unsigned mode,struct entry *game_dir) {
+  unsigned walked=0,found=0;uint32_t c=start;
   do {
-    if (!fixed_root && !cluster_valid(c)) return 0;
-    unsigned n = fixed_root ? root_sectors : sectors_per_cluster;
-    uint32_t lba = fixed_root ? c : cluster_sector(c);
-    for (unsigned s=0; s<n; s++) {
-      if (++walked > DIR_SECTOR_LIMIT) return 0;
-      if (!sd_read_sector(lba+s, buf)) return 0;
-      for (unsigned offset=0; offset<512; offset+=32) {
-        const uint8_t *p = buf+offset;
-        if (!p[0]) return found == (1U<<count)-1;
-        if (p[0] == 0xe5 || (p[11]&8)) continue; /* Deleted, volume label or LFN. */
-        for (unsigned i=0; i<count; i++) {
-          unsigned j=0; while (j<11 && p[j] == (uint8_t)names[first+i][j]) j++;
-          if (j != 11) continue;
-          if (found & (1U<<i)) return 0; /* Ambiguous duplicate. */
-          found |= 1U<<i;
-          entries[i].cluster = u16(p+26) | (fat32 ? u16(p+20)<<16 : 0);
-          entries[i].size = u32(p+28); entries[i].attr = p[11];
+    if(!fixed_root&&!cluster_valid(c))return 0;
+    unsigned n=fixed_root?root_sectors:sectors_per_cluster;
+    uint32_t lba=fixed_root?c:cluster_sector(c);
+    for(unsigned s=0;s<n;s++) {
+      if(++walked>DIR_SECTOR_LIMIT||!sd_read_sector(lba+s,buf))return 0;
+      for(unsigned off=0;off<512;off+=32) {
+        const uint8_t *p=buf+off;
+        if(!p[0])return mode||found;
+        if(p[0]==0xe5||(p[11]&8))continue;
+        if(!mode) {
+          if(equal(p,(const uint8_t*)"ZORK       ",11)) {
+            if(found++)return 0;*game_dir=entry_at(p);
+          }
+        } else if(equal(p,(const uint8_t*)"SAVES   BIN",11)) {
+          if(found++)return 0;pool=entry_at(p);
+        } else if(!(p[11]&0x10)&&equal(p+8,(const uint8_t*)"DAT",3)) {
+          if(story_count==STORY_LIMIT){say("Too many DAT files (maximum 20).\n");return 0;}
+          struct candidate *item=&stories[story_count++];item->file=entry_at(p);
+          unsigned j=0;for(unsigned i=0;i<8&&p[i]!=' ';i++)item->name[j++]=p[i];
+          item->name[j++]='.';for(unsigned i=8;i<11;i++)item->name[j++]=p[i];item->name[j]=0;
         }
       }
     }
-    if (fixed_root) break;
-    if (!next_cluster(c, &c)) return 0;
-  } while (!chain_end(c));
-  return found == (1U<<count)-1;
+    if(fixed_root)break;if(!next_cluster(c,&c))return 0;
+  }while(!chain_end(c));
+  return mode||found;
 }
-
-/* Include allocated directory clusters beyond the first end-of-entries marker.
- * Check the whole chain even if the names were found in its first sector. */
-static int protect_directory(uint32_t start, int fixed_root) {
-  uint32_t c=start;
-  unsigned walked=0;
+/* Protect all allocated directory clusters, even beyond the entry end marker.
+ * Coalescing contiguous allocations bounds RAM without mapping every sector. */
+static int protect_directory(uint32_t start,int fixed_root) {
+  uint32_t c=start;unsigned walked=0;
   do {
-    if (!fixed_root && !cluster_valid(c)) return 0;
-    unsigned n=fixed_root ? root_sectors : sectors_per_cluster;
-    if (n > DIR_SECTOR_LIMIT-walked) return 0;
-    walked+=n;
-    uint32_t lba=fixed_root ? c : cluster_sector(c);
-    for (unsigned i=0; i<MAP_SECTORS; i++)
-      if (sector_map[i]>=lba && sector_map[i]-lba<n) return 0;
-    if (fixed_root) return 1;
-    if (!next_cluster(c, &c)) return 0;
-  } while (!chain_end(c));
-  return 1;
-}
-
-static int map_file(struct entry *e, unsigned offset, unsigned size) {
-  if ((e->attr & 0x18) || (offset >= STORY_SECTORS && (e->attr & 1)) || e->size != size*512U) return 0;
-  uint32_t c = e->cluster;
-  for (unsigned i=0; i<size;) {
-    if (!cluster_valid(c)) return 0;
-    uint32_t lba = cluster_sector(c);
-    /* Compare allocated clusters, including unused tail sectors. */
-    for (unsigned j=0; j<offset+i; j++)
-      if ((sector_map[j]-data_start)/sectors_per_cluster == c-2) return 0;
-    for (unsigned s=0; s<sectors_per_cluster && i<size; s++) sector_map[offset+i++] = lba+s;
-    if (!next_cluster(c, &c)) return 0;
-    if (i<size && chain_end(c)) return 0;
-  }
-  return chain_end(c); /* Reject overallocated/cyclic chains as well as short ones. */
-}
-
-int storage_init(void) {
-  ready = 0;
-  fat_cached_sector = UINT32_MAX;
-  if (!sd_read_sector(0, buf)) return 0;
-  /* A boot jump identifies a superfloppy. Otherwise select the first primary
-   * FAT16/FAT32 MBR partition. GPT/extended partition traversal is unsupported.
-   */
-  uint32_t base=0, size=UINT32_MAX;
-  if (!((buf[0] == 0xeb && buf[2] == 0x90) || buf[0] == 0xe9) || u16(buf+11) != 512) {
-    if (u16(buf+510) != 0xaa55) return 0;
-    unsigned i;
-    for (i=0; i<4; i++) {
-      const uint8_t *p = buf+446+16*i;
-      unsigned type=p[4];
-      if (type==4 || type==6 || type==14 || type==11 || type==12) {
-        base=u32(p+8); size=u32(p+12);
-        if (!base || !size || base > UINT32_MAX-size || (p[0] != 0 && p[0] != 0x80)) return 0;
-        break;
-      }
+    if(!fixed_root&&!cluster_valid(c))return 0;
+    unsigned n=fixed_root?root_sectors:sectors_per_cluster;
+    if(n>DIR_SECTOR_LIMIT-walked)return 0;walked+=n;
+    uint32_t lba=fixed_root?c:cluster_sector(c);
+    for(unsigned i=0;i<directory_count;i++)
+      if(lba<directories[i].start+directories[i].size&&directories[i].start<lba+n)return 0;
+    if(directory_count&&directories[directory_count-1].start+directories[directory_count-1].size==lba)
+      directories[directory_count-1].size+=n;
+    else {
+      if(directory_count==DIR_EXTENTS)return 0;
+      directories[directory_count].start=lba;directories[directory_count++].size=n;
     }
-    if (i==4) return 0;
-  }
-  if (!mount_volume(base, size)) return 0;
-  struct entry dir, files[3];
-  if (!directory(root_start, !fat32, 0, 1, &dir) ||
-      !(dir.attr & 0x10) || !cluster_valid(dir.cluster)) return 0;
-  uint32_t zork_dir=dir.cluster;
-  if (!directory(zork_dir, 0, 1, 3, files)) return 0;
-  if (!map_file(&files[0], 0, STORY_SECTORS) ||
-      !map_file(&files[1], STORY_SECTORS, SAVE_SECTORS) ||
-      !map_file(&files[2], STORY_SECTORS+SAVE_SECTORS, SAVE_SECTORS)) return 0;
-  if (!protect_directory(root_start, !fat32) || !protect_directory(zork_dir, 0)) return 0;
-  if (!sd_read_sector(sector_map[0], buf) || buf[0]!=3 || u16(buf+2)!=0x5800) return 0;
-  const char *serial="840726";
-  for (unsigned i=0; i<6; i++) if (buf[18+i] != (uint8_t)serial[i]) return 0;
-  ready = 1;
-  return 1;
+    if(fixed_root)return 1;if(!next_cluster(c,&c))return 0;
+  }while(!chain_end(c));return 1;
 }
-
-int storage_read(unsigned file, unsigned sector, uint8_t *data) {
-  if (!ready || file>STORAGE_SAVE_B || sector >= (file ? SAVE_SECTORS : STORY_SECTORS)) return 0;
-  unsigned offset = file ? STORY_SECTORS+(file-1)*SAVE_SECTORS : 0;
-  return sd_read_sector(sector_map[offset+sector], data);
-}
-int storage_writable(uint32_t sector) {
-  if (!ready) return 0;
-  for (unsigned i=STORY_SECTORS; i<MAP_SECTORS; i++) if (sector_map[i]==sector) return 1;
+static int directory_overlap(uint32_t lba,unsigned n) {
+  for(unsigned i=0;i<directory_count;i++)
+    if(lba<directories[i].start+directories[i].size&&directories[i].start<lba+n)return 1;
   return 0;
 }
-int storage_write(unsigned bank, unsigned sector, const uint8_t *data) {
-  if (!ready || bank>1 || sector>=SAVE_SECTORS) return 0;
-  return sd_write_sector(sector_map[STORY_SECTORS+bank*SAVE_SECTORS+sector], data);
+/* Exact finite chain lengths reject cycles/short/overallocated files. Pool
+ * traversal protects every slot, but only maps the currently selected pair. */
+static int map_file(struct entry *e,int is_pool,unsigned skip) {
+  if((e->attr&0x18)||(is_pool&&(e->attr&1))||!e->size)return 0;
+  unsigned size=(e->size+511)/512;uint32_t c=e->cluster;
+  unsigned bound=is_pool?STORAGE_POOL_BYTES/512:STORY_SECTORS;
+  if(size>bound)return 0;
+  for(unsigned i=0;i<size;) {
+    if(!cluster_valid(c))return 0;
+    uint32_t lba=cluster_sector(c);
+    if(directory_overlap(lba,sectors_per_cluster))return 0;
+    if(is_pool)for(unsigned j=0;j<story_sectors;j++)
+      if(sector_map[j]>=lba&&sector_map[j]-lba<sectors_per_cluster)return 0;
+    for(unsigned s=0;s<sectors_per_cluster&&i<size;s++,i++) {
+      if(!is_pool)sector_map[i]=lba+s;
+      else {
+        if(i%SAVE_SECTORS==0)save_headers[i/SAVE_SECTORS]=lba+s;
+        if(i>=skip&&i-skip<2*SAVE_SECTORS)sector_map[STORY_SECTORS+i-skip]=lba+s;
+      }
+    }
+    if(!next_cluster(c,&c))return 0;
+    if(i<size&&chain_end(c))return 0;
+  }
+  return chain_end(c);
+}
+static const char *validate_story(struct entry *e) {
+  if(e->size<64)return "size must be at least 64 bytes";
+  if(e->size>V3_FILE_MAX)return "padded file exceeds 1 MiB";
+  if(!cluster_valid(e->cluster)||!sd_read_sector(cluster_sector(e->cluster),buf))return "story read failed";
+  if(buf[0]!=3)return "requires Z-machine V3";
+  unsigned dynamic=be16(buf+14);uint32_t length=2U*be16(buf+26);if(!length)length=e->size;
+  if(length<64||length>e->size||length>V3_STORY_MAX)return "invalid declared length (maximum 128 KiB)";
+  if(dynamic<64||dynamic>length||be16(buf+4)<dynamic||be16(buf+4)>=length||
+      be16(buf+6)<64||be16(buf+6)>=length||be16(buf+10)<64||be16(buf+10)+62U>dynamic||
+      be16(buf+12)<64||be16(buf+12)+480U>dynamic||be16(buf+8)<64||be16(buf+8)+4U>length||
+      be16(buf+24)<64||be16(buf+24)+192U>length)return "invalid V3 memory layout";
+  return 0;
+}
+static int name_after(const char *a,const char *b) {
+  for(;;) {
+    unsigned x=(uint8_t)*a++,y=(uint8_t)*b++;
+    if(x>='a'&&x<='z')x-=32;if(y>='a'&&y<='z')y-=32;
+    if(x!=y)return x>y;if(!x)return 0;
+  }
+}
+static void say_number(unsigned n) {
+  if(n>=10)say_number(n/10);console_put('0'+n%10);
+}
+static int select_story(void) {
+  // Sort complete candidates so selection retains the filename's allocation.
+  for(unsigned i=1;i<story_count;i++) {
+    struct candidate item=stories[i];unsigned j=i;
+    while(j&&name_after(stories[j-1].name,item.name)){stories[j]=stories[j-1];j--;}
+    stories[j]=item;
+  }
+  unsigned good=0,last=0;
+  for(unsigned i=0;i<story_count;i++) {
+    stories[i].error=validate_story(&stories[i].file);
+    if(!stories[i].error){good++;last=i;}
+    else{say("Skipping ");say(stories[i].name);say(": ");say(stories[i].error);say("\n");}
+  }
+  if(!good){say("No compatible V3 DAT stories in /ZORK.\n");return 0;}
+  if(good==1)chosen=last;
+  else {
+    say("V3 stories:\n");
+    for(unsigned i=0;i<story_count;i++)if(!stories[i].error){say_number(i+1);say(". ");say(stories[i].name);say("\n");}
+    for(;;) {
+      say("Select story number: ");unsigned choice=0,escape=0,length=0,invalid=0;
+      for(;;) {
+        int c=console_get();
+        if(escape){if(escape==1&&(c=='['||c=='O'))escape=2;else if(c>=0x40&&c<=0x7e)escape=0;continue;}
+        if(c==27){escape=1;continue;}if(c==KEY_UP||c==KEY_DOWN)continue;
+        if(c=='\r'||c=='\n'){say("\n");break;}
+        if(c==8||c==127){if(length){console_put(8);console_put(' ');console_put(8);choice/=10;length--;}continue;}
+        if(c>='0'&&c<='9'&&length<2){choice=choice*10+c-'0';length++;console_put(c);}
+        else if(c>=32&&c<127)invalid=1;
+      }
+      if(!invalid&&choice&&choice<=story_count&&!stories[choice-1].error){chosen=choice-1;break;}
+      say("Choose a compatible story number.\n");
+    }
+  }
+  struct entry *e=&stories[chosen].file;
+  story_sectors=(e->size+511)/512;
+  if(!map_file(e,0,0)){say("Invalid story allocation chain.\n");return 0;}
+  if(!sd_read_sector(sector_map[0],buf))return 0;
+  story_bytes=2U*be16(buf+26);if(!story_bytes)story_bytes=e->size;
+  /* Standard release/serial/checksum identity, plus logical and dynamic sizes.
+   * Renaming a story preserves its saves; a different release gets a new slot. */
+  for(unsigned i=0;i<2;i++)story_id[i]=buf[2+i];
+  for(unsigned i=0;i<6;i++)story_id[2+i]=buf[18+i];
+  story_id[8]=buf[28];story_id[9]=buf[29];
+  for(unsigned i=0;i<4;i++)story_id[10+i]=story_bytes>>(8*i);
+  story_id[14]=buf[14];story_id[15]=buf[15];
+  say("Starting ");say(stories[chosen].name);say("\n");return 1;
+}
+static int select_saves(void) {
+  if(pool.size==STORAGE_POOL_BYTES)save_slots=STORAGE_SAVE_SLOTS;
+  else if(pool.size==STORAGE_LEGACY_SLOTS*2U*STORAGE_BANK_BYTES)save_slots=STORAGE_LEGACY_SLOTS;
+  else return 0;
+  if(!map_file(&pool,1,0))return 0;
+  int match=-1,empty=-1;
+  for(unsigned slot=0;slot<save_slots;slot++) {
+    unsigned owned=0,blank=0,foreign=0;
+    for(unsigned bank=0;bank<2;bank++) {
+      if(!sd_read_sector(save_headers[slot*2+bank],buf))return 0;
+      unsigned zero=1;for(unsigned i=0;i<512;i++)if(buf[i])zero=0;
+      if(zero)blank++;else if(equal(buf+16,story_id,STORAGE_ID_BYTES))owned++;else foreign++;
+    }
+    if(owned) {if(foreign||match>=0)return 0;match=slot;}
+    if(blank==2&&empty<0)empty=slot;
+  }
+  int slot=match>=0?match:empty;
+  if(slot<0){say("Save pool full; no slot for this story.\n");return 0;}
+  return map_file(&pool,1,(unsigned)slot*2*SAVE_SECTORS);
+}
+int storage_init(void) {
+  ready=saves_ready=story_count=directory_count=story_sectors=save_slots=0;pool.size=0;fat_cached_sector=UINT32_MAX;
+  if(!sd_read_sector(0,buf))return 0;
+  uint32_t base=0,size=UINT32_MAX;
+  if(!((buf[0]==0xeb&&buf[2]==0x90)||buf[0]==0xe9)||u16(buf+11)!=512) {
+    if(u16(buf+510)!=0xaa55)return 0;unsigned i;
+    for(i=0;i<4;i++) {
+      const uint8_t *p=buf+446+16*i;unsigned type=p[4];
+      if(type==4||type==6||type==14||type==11||type==12) {
+        base=u32(p+8);size=u32(p+12);
+        if(!base||!size||base>UINT32_MAX-size||(p[0]!=0&&p[0]!=0x80))return 0;break;
+      }
+    }if(i==4)return 0;
+  }
+  if(!mount_volume(base,size))return 0;
+  struct entry dir;
+  if(!directory(root_start,!fat32,0,&dir)||!(dir.attr&0x10)||!cluster_valid(dir.cluster)||
+      !protect_directory(root_start,!fat32)||!protect_directory(dir.cluster,0)||
+      !directory(dir.cluster,0,1,&dir)||!select_story())return 0;
+  saves_ready=select_saves();
+  if(!saves_ready)say("Saves disabled: prepare /ZORK/SAVES.BIN (5 MiB, 20 stories).\n");
+  ready=1;return 1;
+}
+uint32_t storage_story_size(void){return story_bytes;}
+const char *storage_story_name(void){return stories[chosen].name;}
+const uint8_t *storage_story_id(void){return story_id;}
+int storage_saves_available(void){return ready&&saves_ready;}
+int storage_read(unsigned file,unsigned sector,uint8_t *data) {
+  if(!ready||file>STORAGE_SAVE_B||sector>=(file?SAVE_SECTORS:(story_bytes+511)/512)||
+      (file&&!saves_ready))return 0;
+  unsigned offset=file?STORY_SECTORS+(file-1)*SAVE_SECTORS:0;
+  return sd_read_sector(sector_map[offset+sector],data);
+}
+int storage_writable(uint32_t sector) {
+  if(!ready||!saves_ready)return 0;
+  for(unsigned i=STORY_SECTORS;i<MAP_SECTORS;i++)if(sector_map[i]==sector)return 1;return 0;
+}
+int storage_write(unsigned bank,unsigned sector,const uint8_t *data) {
+  if(!ready||!saves_ready||bank>1||sector>=SAVE_SECTORS)return 0;
+  return sd_write_sector(sector_map[STORY_SECTORS+bank*SAVE_SECTORS+sector],data);
 }

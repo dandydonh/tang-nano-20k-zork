@@ -1,10 +1,11 @@
-# Zork I on Tang Nano 20K
+# Zork and V3 stories on Tang Nano 20K
 
-A dedicated Zork appliance for the Sipeed Tang Nano 20K (GW2AR-18C,
-GW2AR-LV18QN88C8/I7). No operating system or external computer runs the game.
-The FPGA contains a PicoRV32 processor and a bare-metal Z-machine V3 interpreter.
-It runs the not supplied `zork1.dat`, release 88 / serial 840726.
-
+A standalone Z-machine V3 story player for the Sipeed Tang Nano 20K
+(GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
+interpreter on the FPGA; no operating system or external computer runs the game.
+Compatible `.dat` files can be copied onto a FAT16/FAT32 microSD card.
+Story data is not included. The supplied local Zork I file is used for regression
+validation; this is an initial V3 implementation, not universal story compatibility.
 
 ## Clone this project
 
@@ -19,16 +20,27 @@ FPGA programming, and SD card preparation.
 Zork I story data is not included.
 
 
-Download the prebuilt FAT bitstream and checksum from the
-[v0.2.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.2.0).
+Download the prebuilt **20-story SDRAM bitstream** from the
+[v0.3.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.3.0).
+Download `zork.fs` and `SHA256SUMS` together and verify with
+`sha256sum -c SHA256SUMS`. Place the bitstream at `impl/pnr/zork.fs` to use
+`./program_flash.sh`, after checking its device, cable index and channel.
+You can also build it from the source below.
 
-The bitstream is **`impl/pnr/zork.fs`**. This firmware reads story and save
-files from a **FAT16/FAT32 microSD card**, alongside your other files.
-The story is on SD; firmware is in the bitstream. The FAT build has been
-programmed and verified. SD save/restore and persistence across power cycles
-have been confirmed on hardware. The earlier raw-format release was also
-verified for serial and HDMI output.
-PS/2 input still needs hardware validation. See [build and validation results](BUILD_RESULT.md).
+Stories load from SD into integrated SDRAM at startup; firmware is embedded in
+the FPGA bitstream. Adding a compatible **V3** story requires file copying and
+reset. **V5 is not supported** by this release. Up to 20 DAT entries and 20 saved
+story identities are supported; see the 5 MiB save-pool preparation and upgrade
+instructions below. The older
+[v0.2.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.2.0)
+contains the earlier fixed-Zork-I FAT firmware.
+
+This exact v0.3.0 bitstream has passed flash programming/readback verification.
+A hardware serial screenshot confirms the discovered menu through entry 19.
+Expanded-pool save/restore, power-cycle persistence, HDMI and PS/2 behavior still
+need hardware observation for this build. Earlier v0.2.0 save/restore and
+power-cycle persistence were confirmed on hardware.
+See [build and validation results](BUILD_RESULT.md).
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
 Zork story data (`zork1.dat` and copies in SD images) is copyrighted third-party
@@ -52,26 +64,29 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 [Open the full-size screenshot](zork_startup_screen.png). Scroll horizontally
 above to see the full terminal at its original size.
 
-Serial output from the Tang Nano 20K after the corrected firmware was flashed.
-The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
-**Moves** at the terminal’s right edge; the game transcript scrolls below it.
+The screenshot shows the earlier Zork I build. The new loader uses the selected
+story filename in the fixed header, with score/moves or the story clock at the
+right edge; the transcript scrolls below it.
 
-1. Prepare a FAT16/FAT32 microSD card with the `ZORK` directory described
-   below. Existing unrelated files can remain on the card. The older raw-format
-   bitstream/release requires its old card image; it cannot use these FAT files.
+1. Prepare a FAT16/FAT32 card with a `ZORK` directory containing compatible
+   `.DAT` stories and, for persistent saves, the preallocated `SAVES.BIN` described
+   below. Existing unrelated files can remain on the card.
 2. Insert the card into the board's microSD slot. Leave it inserted during play.
 3. For HDMI output, connect a display accepting 1280x720 at 60 Hz. If using
    serial I/O, no HDMI connection or display is required.
-4. Connect a keyboard using either method below, and program the new
+4. Connect a keyboard using either method below and program the new
    `impl/pnr/zork.fs` when ready. The existing `./program_flash.sh` uses device
    GW2AR-18C, cable 4, channel 0, flash operation 9.
-5. Press the reset button on package pin 88 if necessary. The game opens at
-   West of House. Enter commands such as `look`, `open mailbox`, `read leaflet`.
+5. Reset the board. One compatible story starts automatically. If several are
+   found, they are listed alphabetically by displayed filename. Enter a story
+   number and press Enter. Reset to choose again.
 
-Type `save` to save, and `restore` to load the latest valid save. There is one
-logical save slot with two alternating physical snapshots for recovery. Saves
-persist on the SD card across reset and loss of board power. 
-Save format is private to this firmware, not Frotz/Quetzal compatible.
+Type the story's `save` and `restore` commands to use its latest valid snapshot.
+Each saved story has an independent pair of alternating snapshots, selected by
+story identity. Saves persist in `SAVES.BIN`; the format is private to this
+firmware, not Frotz/Quetzal compatible. The new save-pool format does not import
+v0.2.0 `SAVEA.BIN`/`SAVEB.BIN` files or the earlier 512 KiB `SAVES.BIN`;
+those files are left untouched.
 
 ### Standalone PS/2 keyboard
 
@@ -111,10 +126,16 @@ the FPGA runs the game. Close the terminal before programming if USB is busy.
 At boot/reset, firmware sends ANSI sequences to reset text attributes, select
 white text on the terminal's default background, clear the screen and move to
 row 2 before the startup banner. The fixed first row shows
-`ZORK I - Tang Nano 20K` on the left and score/moves at the right edge of the
-terminal, with one blank column of margin. The project title appears only in
+`STORY.DAT - Tang Nano 20K` on the left and score/moves (or a V3 clock) at the
+right edge of the terminal, with one blank column of margin. The project title appears only in
 this header. Values refresh before each command while the transcript scrolls
-below it. Use an ANSI/VT100 terminal at least 80 columns wide with
+below it. Story text wraps at word boundaries within **79 columns** on both
+serial and HDMI. Firmware sends explicit CRLF line breaks, so long paragraphs
+remain visible even when terminal autowrap is disabled. Wider terminals retain
+this transcript width while the status counters stay at the terminal's right edge.
+Overlong words split across lines without losing characters. Input echo is
+immediate; Backspace and history replacement can erase across wrapped lines.
+Use an ANSI/VT100 terminal at least 80 columns wide with
 a black default background. Palette color 0 is deliberately avoided because
 some themes render it gray even when the default background is black.
 With Minicom inside Terminator, the default background can still resolve to
@@ -126,82 +147,132 @@ corrected this way; its original config is backed up in
 The UART receive FIFO is 16 bytes; type normally rather than pasting multiple
 commands while the game is producing output. PS/2 and serial inputs can both
 be connected. User serial output has been observed in Minicom; PS/2 hardware
-remain unverified.
+remains unverified.
 
 ## SD files and preparation
 
-Use a **FAT16 or FAT32** filesystem with 512-byte sectors. A normal FAT32 card
-can also hold unrelated files and directories, including VFAT long filenames.
-Cards sold formatted as exFAT need a FAT32 filesystem instead; exFAT is not
-supported. Formatting removes existing contents, so back them up first.
+Use **FAT16 or FAT32**, with 512-byte sectors. Unrelated files and VFAT long
+filenames can share the card. exFAT is unsupported; back up existing contents
+before any reformatting.
 
-Create these files in a directory named `ZORK` at the filesystem root:
+### Drop in a story
 
-| File | Size | Use |
-| --- | --- | --- |
-| `ZORK/ZORK1.DAT` | 92,160 bytes | User-supplied Zork I V3, release 88 / serial 840726 |
-| `ZORK/SAVEA.BIN` | 32,768 bytes | Snapshot bank A, initially all zeros |
-| `ZORK/SAVEB.BIN` | 32,768 bytes | Snapshot bank B, initially all zeros |
+With the board powered off, copy a compatible `.dat` file into the card's
+**`ZORK` folder**, safely eject the card, reinsert it and reset the board.
+Every boot or board reset reads the directory again and builds the menu from
+the files currently on the card. Game filenames and titles are not hardcoded;
+adding, removing or replacing a compatible story requires no firmware rebuild.
+No story conversion or per-story save-file preparation is needed. Up to 20
+`.DAT` directory entries are discovered; incompatible headers are reported and
+skipped. With multiple compatible files, enter a number (1–20) and press Enter at startup using serial
+or PS/2. The menu sorts filenames alphabetically, independent of file-copy
+order. The menu displays FAT short names (for example `MYSTOR~1.DAT` for a long
+filename); simple names such as `ZORK2.DAT` are easiest to recognize.
 
-The easiest preparation is to create a staging directory on your computer:
+Initial compatibility limits:
 
-```bash
-mkdir -p /tmp/zork-card-files
-python3 scripts/make_sd.py --directory /tmp/zork-card-files
+- Z-machine **V3**, logical story size 64 bytes through **128 KiB**. The complete
+  story loads into SDRAM, including fragmented files and partial final sectors.
+- The full 16-bit writable-memory boundary is supported: up to **65,535 bytes**.
+  Writes beyond the declared writable region remain forbidden.
+- Padded files up to **1 MiB** are accepted when a nonzero header length declares
+  a valid story no larger than 128 KiB. Trailing bytes are ignored during execution,
+  but their allocated sectors remain protected from saves. A zero-length header
+  uses the actual file size, which must then fit within 128 KiB. No trimming is needed.
+- Unsupported versions, sizes and memory layouts produce a clear startup message.
+- 2,048-word evaluation stack and 96 call frames; unsupported operations fail
+  with a core error. There is no claim that every V3 story will work.
+- Score/moves and time-based V3 status are supported. Split-window output,
+  printer/transcripts and sound are unavailable.
+
+### One-time save preparation
+
+Persistent saves use one **5 MiB** preallocated file:
+
+```text
+ZORK/
+  ZORK1.DAT     A compatible story, any supported size
+  ZORK2.DAT     Another compatible story (optional)
+  SAVES.BIN     Exactly 5242880 bytes; initially all zeros
 ```
 
-Copy the resulting **`ZORK` directory** to your FAT card using your normal file
-manager, then safely eject it. You can also pass the root of an already mounted
-FAT card to `--directory` to create the files there directly. The script refuses
-an existing `ZORK` directory so it cannot replace saved games. To back up saves,
-copy both save files off the card while the board is powered off.
-
-For a fresh disk-image workflow instead:
+For an existing card with a `ZORK` folder, this creates only a missing save pool:
 
 ```bash
-python3 scripts/make_sd.py --output /tmp/zork-fat.img
+python3 scripts/make_sd.py --directory /path/to/mounted/card --prepare-saves
 ```
 
-This creates a 65 MiB disk image containing a 64 MiB FAT32 partition and blank
-saves. `--fat 16` selects an 8 MiB FAT16 volume; `--superfloppy` omits the MBR.
-The script refuses existing image paths and never writes a physical device.
-Writing a disk image to a physical card replaces its existing contents; normal
-file copying above preserves unrelated files. The former raw `zork-sd.img`
-format is unsupported by this firmware. Migration is not included.
+Alternatively prepare the pool in an existing staging folder containing `ZORK`,
+then copy just `SAVES.BIN` onto the card. The script refuses to overwrite it and
+leaves existing stories and old save files untouched. Without a valid writable
+pool, stories still play, but SAVE/RESTORE is disabled with an explanation.
 
-### Filesystem behavior and limits
+**Upgrading from the previous loader:** with the board powered off, back up and
+move the old 512 KiB `ZORK/SAVES.BIN` off the card, then create/copy the new
+5 MiB file. The `ZMV5` format cannot import earlier snapshots. The preparation
+script refuses to overwrite an existing file; do not replace a new-format pool
+after it contains saves you want to retain.
 
-The firmware resolves each file's cluster chain at startup. Fragmented files
-work; contiguous allocation is not required. A compact sector map translates
-story-cache misses and snapshot operations to file data sectors. This is an
-original, restricted FAT implementation in `firmware/storage.c`: it does not
-create, resize, delete or rename files, or write FAT tables, FSInfo or directory
-entries. Keep both save files at exactly 32 KiB; don't edit them as text.
-File timestamps remain unchanged after saving.
+**Expanding an existing 2 MiB ZMV5 pool:** the new firmware still reads and
+writes it, with its original eight-identity capacity. With the board off, copy
+it to your computer and keep that backup. Create an expanded copy:
 
-Each save includes dynamic memory, evaluation stack, call frames, locals, PC
-and random generator state. The inactive snapshot's payload is written before
-its commit header, and each SD write waits for the card to finish being busy.
-A 32-bit FNV-1a hash is checked before restoring. A corrupted newest snapshot
-falls back to the previous valid bank. Keeping allocation metadata unchanged
-reduces filesystem exposure, but card-internal flash behavior still limits
-power-loss guarantees. Save files remain private snapshots, not Quetzal files.
+```bash
+python3 scripts/make_sd.py --expand-saves /path/to/backup/SAVES.BIN --output /tmp/SAVES.BIN
+```
 
-Supported layouts: an unpartitioned FAT volume (superfloppy), or the first
-supported FAT16/FAT32 primary partition in an MBR. FAT12, exFAT, GPT and logical
-partitions in extended partitions are unsupported. Project paths use fixed 8.3
-names; other long-named files are ignored. Cluster sizes of 1–128 sectors are
-accepted. Each root/game directory chain is limited to 256 sectors (4,096
-entries, including long-filename records). File chains must match their file
-sizes, rounded to clusters. Malformed or overlapping project chains, wrong file
-sizes, missing files and read-only save files cause a startup error. Use a
-healthy filesystem; the firmware does not run a whole-volume filesystem check.
+The new file is 5 MiB: all original bytes stay in place, followed by 12 blank
+identity slots. Existing output files are refused. Copy the expanded file to
+`ZORK/SAVES.BIN` on the card, safely eject and reboot. This expansion applies
+only to the 2 MiB ZMV5 pool; earlier 512 KiB snapshots cannot be imported.
 
-The SPI driver supports SD v1/v2 initialization and SDSC byte addressing or
+To prepare a fresh staging directory with one or more stories:
+
+```bash
+mkdir -p /tmp/v3-card-files
+python3 scripts/make_sd.py --directory /tmp/v3-card-files --story ./zork1.dat
+# Repeat --story PATH to include additional stories during initial preparation.
+```
+
+Copy the resulting `ZORK` folder to the FAT card's root. Fresh preparation refuses
+an existing `ZORK` folder so it cannot replace saved games. For a fresh disk image
+instead, use `--output /tmp/v3-sdram-fat.img`; default is a 65 MiB disk image with a
+64 MiB FAT32 partition. `--fat 16` selects an 8 MiB FAT16 volume and
+`--superfloppy` omits the MBR. Image generation refuses existing output paths and
+never writes a physical device. Writing an image to a card replaces its contents;
+normal story-file copying preserves unrelated files.
+
+### Saves and filesystem limits
+
+The pool holds **20 story identities**, each with two 128 KiB snapshot banks.
+Identity uses release, serial, checksum, logical story size and writable-memory size;
+renaming a story or adding/removing trailing padding preserves its saves,
+and different releases normally use
+separate slots. Copies with the same identity share a slot. Removing a `.DAT`
+file does not reclaim its saves. A full pool disables saves for new identities
+while retaining access to existing ones. Back up the entire `SAVES.BIN` file
+with the board powered off. No automatic slot deletion occurs.
+
+Firmware resolves file chains at startup and writes only the selected story's
+save-pair data sectors. It never writes FAT tables, FSInfo or directory entries,
+or creates/resizes files. Timestamps remain unchanged. Snapshot payload is
+written before its commit header; each SD write waits for the card to finish
+being busy. Hash verification and alternating banks allow fallback to an older
+valid snapshot. Card-internal flash behavior still limits power-loss guarantees.
+Conflicting or unrecognized slot ownership is preserved rather than reclaimed.
+
+Supported layouts: a FAT volume without a partition table, or the first supported
+FAT16/FAT32 primary partition in an MBR. FAT12, exFAT, GPT and extended/logical
+partitions are unsupported. Cluster sizes of 1–128 sectors are accepted. Root and
+game directories are each limited to 256 sectors (4,096 entries, including VFAT
+records), and their allocations together to 32 coalesced sector extents.
+File chains must match file sizes rounded to clusters. Use a healthy filesystem;
+firmware does not run a whole-volume filesystem check.
+
+The SPI driver supports SD v1/v2 initialization, SDSC byte addressing and
 SDHC/SDXC block addressing. Clock starts at 337.5 kHz, then rises to 3.375 MHz.
-Reset after inserting a card. The firmware caches sector mappings until reset:
-**do not hot swap the card or modify it from another device while playing**.
-Power the board off before moving the card to your computer.
+Mappings are cached until reset: **do not hot swap the card or modify it from
+another device while playing**. Power off before moving the card to a computer.
 
 ## Build and test
 
@@ -213,7 +284,7 @@ Gowin FPGA Designer and open **zork.gprj**. The local IDE executable is
 
 The project selects **GW2AR-LV18QN88C8/I7**, device revision **C**, with
 **zork_top** as the top module and **zork** as the output base name. It includes
-all nine Verilog sources and the board pin/timing constraints. Memory images
+all ten Verilog sources and the board pin/timing constraints. Memory images
 and firmware sources appear under Other Files; they are excluded as synthesis
 inputs, but the RTL loads the three memory images through `$readmemh`.
 
@@ -259,18 +330,31 @@ They also cover all SPI/UART byte values, PS/2
 parity and timeout recovery, two full video frames and 100,000 TMDS symbols.
 A compiled RTL integration test runs the real firmware through the processor,
 SPI SDHC and SDSC card models with fragmented FAT16 files and an MBR FAT32
-SDHC fixture, PS/2 and UART, then resets and restores from the retained card.
+SDHC fixture, plus multi-story startup selection through UART and PS/2.
+Each run resets and restores from the retained card. An additional processor
+fixture exercises a padded 128 KiB story and a 65,535-byte writable region.
+A command-level SDRAM model checks initialization, CAS latency, byte masks,
+addressing and refresh deadlines. Original V3 programs exercise variable sizes,
+high-memory reads, story identity and isolated saves. Optional private files in
+`inspect_files/` are checked by `python3 tests/test_local_stories.py`; the directory
+is ignored by Git and its contents are never included in the project.
 
 ## Design and limits
 
-- 27 MHz RV32IM CPU; 64 KiB on-chip initialized RAM. No SDRAM controller.
-- 16 KiB static-story cache; 12 KiB dynamic memory allocation; 2,048-word Z stack;
-  96 call frames. Linker reserves at least 8 KiB of native stack.
+- 27 MHz RV32IM CPU; 64 KiB initialized block RAM for firmware and native stack.
+- 8 MiB integrated 32-bit SDR SDRAM, mapped at `0x30000000` with CPU wait states.
+  A pristine story occupies the first 128 KiB; writable memory starts at
+  `0x30020000`. The controller uses CAS=2, single-word bursts, auto-precharge and
+  autonomous refresh, including while waiting for input or SD transfers. Startup
+  checks SDRAM data/address lines and byte enables before loading a story.
+- 2,048-word Z stack and 96 call frames remain in block RAM. The linker reserves
+  at least 8 KiB of native stack. No extra wiring or hardware is required.
 - HDMI carries DVI-compatible video, no audio. 80 columns by 32 rows, including
   a fixed inverse status row showing score and turns. Glyphs are 8x16 pixels,
   doubled horizontally; console occupies 1280x512 centered in 720p.
-- Character wrapping, scrolling, basic line editing. No scrollback or MORE pause.
-- Dedicated V3 implementation for this supplied game, not a general Z-machine
+- Explicit 79-column word wrapping, scrolling and basic line editing. No
+  scrollback or MORE pause. One column remains free on an 80-column display.
+- Initial V3 implementation with bounded memory, not a general Z-machine
   conformance claim. No printer/transcript stream, split window or sound support.
   No complete 350-point playthrough has been validated.
 - LED on pin 20 lights when HDMI PLL is locked and CPU has not trapped;

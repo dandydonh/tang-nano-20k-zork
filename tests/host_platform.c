@@ -5,8 +5,9 @@
 static FILE *disk;
 static long cut_after=-1,writes;
 void platform_init(void){const char *p=getenv("ZORK_SD_IMAGE");disk=fopen(p?p:"assets/zork-fat.img","r+b");if(!disk){perror("SD image");exit(1);}const char *cut=getenv("ZORK_CUT_AFTER_WRITES");if(cut)cut_after=strtol(cut,NULL,10);setbuf(stdout,NULL);}
-void console_put(int c){putchar(c);}
-int console_get(void){int c=getchar();if(c==EOF)exit(0);return c;}
+void console_emit(int c){putchar(c);}
+int console_previous_line(void){fputs("\033[1A\033[78C",stdout);return 1;}
+int console_get(void){console_story_flush();int c=getchar();if(c==EOF)exit(0);return c;}
 static char status_line[81];
 void status_put(unsigned col,int c){if(col<80)status_line[col]=c;}
 void status_flush(unsigned right_start){(void)right_start;fprintf(stderr,"%s\n",status_line);}
