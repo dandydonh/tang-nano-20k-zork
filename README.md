@@ -37,7 +37,7 @@ reset. **V5 is not supported** by this release. Up to 20 DAT entries and 20 save
 story identities are supported, with five save positions per game by default in
 a 25 MiB pool. Existing 2/5 MiB pools retain one position per game; see
 preparation and upgrade instructions below. Previous release pages and assets
-have been removed; historical source tags remain available.
+and their tags have been removed; v0.4.0 is the only current release/tag.
 
 This exact v0.4.0 bitstream has passed persistent flash programming/readback
 verification. All seven processor simulations and the full software/RTL suite

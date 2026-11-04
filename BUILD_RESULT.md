@@ -64,7 +64,8 @@ preserves all bytes at their original offsets, fills unused story identities,
 and appends player positions. It accepts existing 2/5 MiB and smaller multi-slot
 pools. Default output is 25 MiB (five positions); `--save-slots N` allows 1..20.
 Old saves become position 1. Back up wanted saves first.
-The historical v0.2.0 source tag contains the earlier fixed-Zork FAT implementation.
+The earlier fixed-Zork FAT implementation remains in Git history at commit
+`6f96dd45076c67c76cbed89b3a07ecbfc7d37dc5`.
 
 ## Memory and SDRAM controller
 
@@ -359,8 +360,8 @@ power-cycle behavior await observation. SD files were not modified.
 
 The source and the programmed twenty-story bitstream were published as the
 v0.3.0 SDRAM V3 preview. Its release page/assets have been superseded by v0.4.0;
-the [v0.3.0 source tag](https://github.com/dandydonh/tang-nano-20k-zork/tree/v0.3.0)
-remains available. Its release attachments were `zork.fs` and `SHA256SUMS`.
+the [historical source commit](https://github.com/dandydonh/tang-nano-20k-zork/tree/6ea7a1991247396884790c52132377e8e137ea6a)
+remains in Git history. Its release attachments were `zork.fs` and `SHA256SUMS`.
 No story files or SD images are attached. V5 remains unsupported. The supplied
 hardware serial screenshot confirms directory discovery/menu rendering through
 entry 19; it does not validate expanded saves, HDMI or PS/2 on this build.
@@ -373,6 +374,6 @@ with `zork.fs`, a blank 25 MiB `SAVES.BIN`, and `SHA256SUMS` covering both.
 The pool is for fresh saves only; expand a backup to preserve existing saves.
 This is the exact tested and
 flash/readback-verified bitstream identified above. Previous release pages and
-assets are removed at the user's request; historical Git tags remain available.
+assets and tags are removed at the user's request. Only v0.4.0 remains.
 No story data or SD image is attached. Physical behavior of this build remains
 unobserved as described above.
