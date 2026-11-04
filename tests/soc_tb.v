@@ -23,6 +23,9 @@ module soc_tb;
  string terminal_init="\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H";
  integer init_position=0,terminal_initializations=0;
  integer status_updates=0;
+ integer slot_menus=0,slot_position=0,confirmations=0,confirm_position=0;
+ string slot_prompt="Slot number [Enter=1, 0=cancel]: ";
+ string confirm_prompt="? [y/N]: ";
  always @(posedge clk)begin
    tr<=text[ta];if(tw)text[ta]<=td;
    if($test$plusargs("wrap")&&tw&&ta>=80&&ta<2560&&ta%80==79&&td!=" ")
@@ -40,6 +43,14 @@ module soc_tb;
          menu_position=menu_position+1;
          if(menu_position==menu_prompt.len())begin menus=menus+1;menu_position=0;end
        end else menu_position=dut.wdata[7:0]==menu_prompt[0]?1:0;
+       if(dut.wdata[7:0]==slot_prompt[slot_position])begin
+         slot_position=slot_position+1;
+         if(slot_position==slot_prompt.len())begin slot_menus=slot_menus+1;slot_position=0;end
+       end else slot_position=dut.wdata[7:0]==slot_prompt[0]?1:0;
+       if(dut.wdata[7:0]==confirm_prompt[confirm_position])begin
+         confirm_position=confirm_position+1;
+         if(confirm_position==confirm_prompt.len())begin confirmations=confirmations+1;confirm_position=0;end
+       end else confirm_position=dut.wdata[7:0]==confirm_prompt[0]?1:0;
        if(previous_serial==27&&dut.wdata[7:0]=="8")status_updates=status_updates+1;
        if(dut.wdata[7:0]==10)begin
          if(previous_serial!=13)$fatal(1,"serial LF without CR causes terminal skew");
@@ -68,9 +79,39 @@ module soc_tb;
    end
  endtask
  integer edit_index;
+ task uart_line(input string line);
+   integer n;begin for(n=0;n<line.len();n=n+1)send_uart(line[n]);send_uart(13);end
+ endtask
  initial begin
    $display("Starting firmware/SD integration test");$fflush();
    repeat(20)@(negedge clk);reset=0;
+   if($test$plusargs("slots"))begin
+     wait(prompts==1);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("s");wait(slot_menus==1);repeat(2000)@(negedge clk);
+     send_key(8'h16);send_key(8'h5a); // PS/2 slot 1: home.
+     wait(prompts==2);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("n");wait(prompts==3);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("s");wait(slot_menus==2);repeat(2000)@(negedge clk);uart_line("2");
+     wait(prompts==4);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("r");wait(slot_menus==3);repeat(2000)@(negedge clk);
+     send_key(8'h16);send_key(8'h5a);
+     wait(prompts==5);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("l");wait(prompts==6);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("s");wait(slot_menus==4);repeat(2000)@(negedge clk);
+     send_key(8'h1e);send_key(8'h5a); // Decline overwriting moved state.
+     wait(confirmations==1);repeat(2000)@(negedge clk);uart_line("n");
+     wait(slot_menus==5);repeat(2000)@(negedge clk);uart_line("0");
+     wait(prompts==7);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     @(negedge clk);reset=1;repeat(20)@(negedge clk);reset=0;
+     wait(prompts==8);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("r");wait(slot_menus==6);repeat(2000)@(negedge clk);uart_line("2");
+     wait(prompts==9);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     uart_line("l");wait(prompts==10);wait(status_updates==prompts);repeat(2000)@(negedge clk);
+     if(card.writes!=42)$fatal(1,"cancel changed saved data: %0d writes",card.writes);
+     if(terminal_initializations!=2)$fatal(1,"terminal reset coverage missing");
+     $display("\nPASS selectable saves: UART/PS2 slots, independent states, declined overwrite/cancel, reset restore: %0d cycles / %0d reads / %0d writes",cycles,card.reads,card.writes);
+     $finish;
+   end
    if($test$plusargs("menu"))begin
      wait(menus==1);repeat(2000)@(negedge clk);
      send_uart("1");send_uart("9");send_uart(13); // 18 GAME entries precede ZORK1.

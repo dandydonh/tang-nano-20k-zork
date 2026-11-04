@@ -238,7 +238,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     old_pool=FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
     old=temp/'old-saves.bin';expanded=temp/'expanded-saves.bin'
     old.write_bytes(old_pool)
-    args=[sys.executable,ROOT/'scripts/make_sd.py','--expand-saves',old,'--output',expanded]
+    args=[sys.executable,ROOT/'scripts/make_sd.py','--save-slots','1','--expand-saves',old,'--output',expanded]
     subprocess.run(args,check=True,capture_output=True)
     assert old.read_bytes()==old_pool and expanded.read_bytes()==old_pool+bytes(POOL_SIZE-len(old_pool))
     assert subprocess.run(args,capture_output=True).returncode!=0
@@ -263,7 +263,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     (stage/'ZORK').mkdir(parents=True)
     (stage/'ZORK/ALPHA.DAT').write_bytes(alpha)
     (stage/'ZORK/SAVEA.BIN').write_bytes(b'old save')
-    args = [sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage, '--prepare-saves']
+    args = [sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--directory', stage, '--prepare-saves']
     subprocess.run(args, check=True, capture_output=True)
     assert (stage/'ZORK/SAVES.BIN').read_bytes() == bytes(POOL_SIZE)
     assert (stage/'ZORK/SAVEA.BIN').read_bytes() == b'old save'
@@ -273,12 +273,12 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     first, second = temp/'alpha.dat', temp/'beta.dat'
     first.write_bytes(alpha);second.write_bytes(beta)
     new_image = temp/'multi.img'
-    subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--story', first,
+    subprocess.run([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--story', first,
                     '--story', second, '--output', new_image, '--fat', '16', '--size-mib', '8'],
                    check=True, capture_output=True)
     assert 'beta ready' in run(new_image, '2\nq\n')[0]
     cli_image=temp/'twenty.img'
-    cli_args=[sys.executable, ROOT/'scripts/make_sd.py', '--output', cli_image, '--fat', '16', '--size-mib', '8']
+    cli_args=[sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--output', cli_image, '--fat', '16', '--size-mib', '8']
     for name,data in many:
         source=temp/name
         source.write_bytes(data)

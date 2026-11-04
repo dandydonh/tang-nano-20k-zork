@@ -77,6 +77,8 @@ if len(sys.argv)>1:
     stream=Path(sys.argv[2]).read_bytes().decode()
     assert 'PASS soc boot' in stream and 'CORE ERROR' not in stream and 'memoryfailed' not in stream
     assert stream.count('saved')==3
+    assert stream.count('stream counts\r\n6 6 13 13 ')==2, 'CPU memory stream table contents'
+    assert 'hidden screen' not in stream and 'outer' not in stream and 'inner' not in stream
     init='\x1b[0m\x1b[37;49m\x1b[2J\x1b[2;r\x1b[2;1H'
     uart=stream[stream.index(init):stream.index('\nPASS serial attributes')]
     boots=uart.split(init)[1:]

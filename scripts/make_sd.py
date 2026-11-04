@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SAVE_SIZE = 131072
 SAVE_SLOTS = 20
 POOL_SIZE = SAVE_SLOTS * 2 * SAVE_SIZE
+DEFAULT_GAME_SLOTS = 5
+MAX_GAME_SLOTS = 20
 
 
 def validate_story(story):
@@ -26,9 +28,12 @@ def validate_story(story):
         raise ValueError('Invalid V3 memory layout')
 
 
-def project_files(story, name='ZORK1.DAT'):
+def project_files(story, name='ZORK1.DAT', save_slots=1):
+    """Build fixtures; retain the legacy single-position default for callers."""
     validate_story(story)
-    return [(name, story), ('SAVES.BIN', bytes(POOL_SIZE))]
+    if not 1 <= save_slots <= MAX_GAME_SLOTS:
+        raise ValueError('Save slots must be 1..20 per game')
+    return [(name, story), ('SAVES.BIN', bytes(POOL_SIZE*save_slots))]
 
 
 def dir_entry(name, cluster, size=0, directory=False):
@@ -154,34 +159,39 @@ def main():
     parser.add_argument('--story', type=Path, action='append', help='V3 story path; repeat for up to 20 stories (default zork1.dat)')
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument('--output', type=Path, help='New image file (default assets/v3-sdram-fat.img)')
-    parser.add_argument('--expand-saves', type=Path, help='Copy an existing 2 MiB ZMV5 pool into a new 5 MiB pool; requires --output')
+    parser.add_argument('--expand-saves', type=Path, help='Expand a copy of an existing ZMV5 pool, preserving every original byte; requires --output')
+    parser.add_argument('--save-slots', type=int, metavar='N', choices=range(1, MAX_GAME_SLOTS+1), default=DEFAULT_GAME_SLOTS,
+                        help='Selectable saves per game (default 5); each adds 5 MiB for 20 games')
     destination.add_argument('--directory', type=Path, help='Existing FAT root or staging directory; creates ZORK/')
     parser.add_argument('--prepare-saves', action='store_true', help='Create only a missing SAVES.BIN in an existing ZORK directory')
     parser.add_argument('--fat', type=int, choices=(16, 32), default=32)
-    parser.add_argument('--size-mib', type=int, help='Image volume size; default 64 for FAT32 or 8 for FAT16')
+    parser.add_argument('--size-mib', type=int, help='Image volume size; default 64 for FAT32 or enough for the selected saves on FAT16')
     parser.add_argument('--superfloppy', action='store_true', help='Image without an MBR partition table')
     args = parser.parse_args()
+    pool_size = POOL_SIZE*args.save_slots
     try:
         import re
         if args.expand_saves is not None:
             if args.output is None or args.story or args.prepare_saves or args.size_mib is not None or args.superfloppy or args.fat != 32:
                 parser.error('--expand-saves requires --output and no story, preparation or image format options')
             old = args.expand_saves.read_bytes()
-            if len(old) != 8*2*SAVE_SIZE:
-                parser.error('--expand-saves requires a 2097152-byte ZMV5 pool')
+            if len(old) != 8*2*SAVE_SIZE and not (len(old) and len(old)%POOL_SIZE==0 and len(old)<=POOL_SIZE*MAX_GAME_SLOTS):
+                parser.error('--expand-saves requires a 2 MiB or 5 MiB-multiple ZMV5 pool')
+            if len(old) >= pool_size:
+                parser.error('Destination must have more capacity; choose a larger --save-slots value')
             for offset in range(0, len(old), SAVE_SIZE):
                 header = old[offset:offset+512]
                 if any(header) and header[:4] != b'ZMV5':
                     parser.error('Source contains an unrecognized snapshot header; left unchanged')
             with args.output.open('xb') as stream:
                 stream.write(old)
-                stream.write(bytes(POOL_SIZE-len(old)))
-            print(f'{args.output}: {POOL_SIZE} bytes; original eight slots preserved, 12 empty slots added')
+                stream.write(bytes(pool_size-len(old)))
+            print(f'{args.output}: {pool_size} bytes; all original bytes preserved, {args.save_slots} save slots per game')
             return
         if args.prepare_saves:
             if args.directory is None or args.story:
                 parser.error('--prepare-saves requires --directory and no --story')
-            files = [('SAVES.BIN', bytes(POOL_SIZE))]
+            files = [('SAVES.BIN', bytes(pool_size))]
         else:
             paths = args.story or [ROOT/'zork1.dat']
             if len(paths) > SAVE_SLOTS:
@@ -196,7 +206,7 @@ def main():
                 data = path.read_bytes()
                 validate_story(data)
                 files.append((name, data))
-            files.append(('SAVES.BIN', bytes(POOL_SIZE)))
+            files.append(('SAVES.BIN', bytes(pool_size)))
         if args.directory is not None:
             if args.size_mib is not None or args.superfloppy or args.fat != 32:
                 parser.error('Image format options cannot be used with --directory')
@@ -210,11 +220,17 @@ def main():
             for name, data in files:
                 with (target/name).open('xb') as stream:
                     stream.write(data)
-            print(f'{target}: {len(files)} files; {POOL_SIZE}-byte save pool, {SAVE_SLOTS} stories')
+            print(f'{target}: {len(files)} files; {pool_size}-byte save pool, {SAVE_SLOTS} stories, {args.save_slots} saves per game')
         else:
             output = args.output if args.output is not None else ROOT/'assets/v3-sdram-fat.img'
             # Exclusive creation also refuses devices and existing images.
-            image = make_image(files, args.fat, args.size_mib, not args.superfloppy)
+            size_mib = args.size_mib
+            if size_mib is None:
+                needed = (sum(len(data) for _, data in files)+1048575)//1048576+2
+                size_mib = max(64 if args.fat==32 else 8, needed)
+                if args.fat==16 and size_mib>=32:
+                    parser.error('Use FAT32 for this many save slots, or specify a suitable existing card with --directory')
+            image = make_image(files, args.fat, size_mib, not args.superfloppy)
             output.parent.mkdir(parents=True, exist_ok=True)
             with output.open('xb') as stream:
                 stream.write(image)

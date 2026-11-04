@@ -22,7 +22,7 @@ def zstring(text):
     return result
 
 
-def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, intro=None, input_size=80):
+def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, intro=None, input_size=80, stream_check=False):
     assert size >= 4096
     story = bytearray(size)
     story[0] = 3
@@ -66,6 +66,22 @@ def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, in
         fixups.append((len(code), target, False))
         emit(0, 0)
 
+    if stream_check:
+        emit(0xf3, 0x3f, 0xff, 0xff)  # output_stream -1
+        text('hidden screen')
+        emit(0xf3, 0x0f, 0, 3, 6, 0)  # stream 3 -> 0x600
+        emit(0xb2)
+        code.extend(zstring('outer'))
+        emit(0xf3, 0x0f, 0, 3, 6, 0x40)  # nested -> 0x640
+        text('inner')
+        emit(0xf3, 0x3f, 0xff, 0xfd)  # close nested
+        emit(0xbb)  # newline in outer
+        emit(0xf3, 0x3f, 0xff, 0xfd, 0xf3, 0x7f, 1)
+        text('stream counts')
+        for address, word in ((0x600, True), (0x640, True), (0x607, False), (0x647, False)):
+            emit(0xcf if word else 0xd0, 0x1f, address >> 8, address & 255, 0, 22)
+            emit(0xe6, 0xbf, 22, 0xe5, 0x7f, 32)
+        emit(0xbb)
     text(name+' ready')
     if intro:text(intro)
     tail = (length-64) & ~1

@@ -8,7 +8,7 @@ title = 'ZORK1.DAT - Tang Nano 20K'
 status = re.compile(r'\x1b7\x1b\[1;1H\x1b\[2K' + re.escape(title) +
                     r'\x1b\[999C\x1b\[(\d+)D(Score: (-?\d+) +Moves: (\d+))\x1b8')
 
-for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.log', 'impl/soc-menu.log'):
+for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.log', 'impl/soc-menu.log', 'impl/soc-slots.log'):
     # read_bytes preserves the actual UART CR/LF bytes.
     stream = Path(logfile).read_bytes().decode()
     frames = status.findall(stream)
@@ -17,10 +17,14 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
     assert title not in clean, 'duplicate standalone startup title'
     assert '\x1b' not in clean, 'unexpected/incomplete serial control sequence'
     values = [(int(score), int(moves)) for _, _, score, moves in frames]
-    assert values[:3] == [(0, 0), (0, 1), (0, 2)], values
-    assert values[4][1] > values[3][1], values  # NORTH advances moves.
-    assert values[5] == values[3], values  # RESTORE restores saved moves.
-    assert values[7] == (0, 0) and values[8] == values[3], values
+    if logfile.endswith('soc-slots.log'):
+        assert values == [(0, 0)]*10, values  # Original synthetic story.
+        assert 'Slot number' in clean and 'Overwrite cancelled.' in clean
+    else:
+        assert values[:3] == [(0, 0), (0, 1), (0, 2)], values
+        assert values[4][1] > values[3][1], values  # NORTH advances moves.
+        assert values[5] == values[3], values  # RESTORE restores saved moves.
+        assert values[7] == (0, 0) and values[8] == values[3], values
 
     # Model two terminal heights, including a gray palette-black theme.
     for height, width in ((24, 80), (32, 80), (24, 100), (32, 132)):
@@ -102,4 +106,4 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
                 col += 1
             pos += 1
         assert updates == 10 and boots == 2 and scrolls > 0
-print('PASS CPU serial status: score/moves, restore/reset, fixed row, scrolling, cursor, single title, right alignment at 80/100/132 columns, black background at 24/32 rows')
+print('PASS CPU serial status and save-slot menus: score/moves, restore/reset, fixed row, scrolling, cursor, single title, right alignment at 80/100/132 columns, black background at 24/32 rows')

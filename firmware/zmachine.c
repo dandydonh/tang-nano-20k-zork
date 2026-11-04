@@ -12,7 +12,14 @@ struct machine {
   struct frame frames[FRAME_MAX];
 };
 static struct machine vm;
-typedef char snapshot_fits_bank[(sizeof(struct machine)+V3_DYNAMIC_MAX+511)/512+1<=STORAGE_BANK_SECTORS?1:-1];
+/* Optional snapshot trailer keeps ordinary ZMV5 snapshots byte-compatible. */
+struct output_streams {
+  uint16_t table[16], length[16];
+  uint8_t depth, screen;
+  uint16_t reserved;
+};
+static struct output_streams streams;
+typedef char snapshot_fits_bank[(sizeof(struct machine)+sizeof(streams)+V3_DYNAMIC_MAX+511)/512+1<=STORAGE_BANK_SECTORS?1:-1];
 #ifdef HOST
 static uint8_t story_image[V3_STORY_MAX], dynamic_memory[65536];
 #else
@@ -38,7 +45,11 @@ static uint8_t story(uint32_t a) {
 }
 static uint8_t rb(uint32_t a) { return a<dynamic_size ? dynamic_memory[a] : story(a); }
 static uint16_t rw(uint32_t a) { return (rb(a)<<8)|rb(a+1); }
-static void wb(uint32_t a,uint16_t v) { if(a>=dynamic_size) fatal("write outside dynamic memory"); dynamic_memory[a]=(uint8_t)v; }
+static void wb(uint32_t a,uint16_t v) {
+  if(a>=dynamic_size)fatal("write outside dynamic memory");
+  if(a==17)v&=~1; /* Transcript requests cannot enable an unavailable file backend. */
+  dynamic_memory[a]=(uint8_t)v;
+}
 static void ww(uint32_t a,uint16_t v) { wb(a,v>>8);wb(a+1,v); }
 static uint8_t fetch(void) { return rb(vm.pc++); }
 static uint16_t fetchw(void) { uint16_t v=fetch();return (v<<8)|fetch(); }
@@ -81,7 +92,42 @@ static uint32_t prop_find(unsigned n,unsigned p) {
   uint32_t a=prop_start(n);while(rb(a) && (rb(a)&31)>p)a+=2+(rb(a)>>5);
   return (rb(a)&31)==p ? a : 0;
 }
-static void zout(int c) { if(!output_window)console_story_put(c==13?'\n':c); }
+static void reset_streams(void) {
+  for(unsigned i=0;i<sizeof(streams);i++)((uint8_t*)&streams)[i]=0;
+  streams.screen=1;
+}
+static void zout(int c) {
+  if(!c)return; /* ZSCII null has no effect. */
+  if(streams.depth) {
+    unsigned i=streams.depth-1;
+    uint32_t at=(uint32_t)streams.table[i]+2+streams.length[i];
+    if(at>=dynamic_size)fatal("memory stream outside dynamic memory");
+    wb(at,c=='\n'?13:c);streams.length[i]++;
+  } else if(streams.screen&&!output_window)console_story_put(c==13?'\n':c);
+}
+static void output_stream(int16_t number,unsigned table,unsigned operands) {
+  /* Flush at the selection boundary, before changing the screen route. */
+  console_story_flush();
+  switch(number) {
+    case 1:streams.screen=1;break;
+    case -1:streams.screen=0;break;
+    case 3:
+      if(operands<2)fatal("memory stream requires table");
+      if(streams.depth==16)fatal("memory stream nesting exceeds 16");
+      if((uint32_t)table+2>dynamic_size)fatal("memory stream outside dynamic memory");
+      streams.table[streams.depth]=table;streams.length[streams.depth++]=0;break;
+    case -3:
+      if(streams.depth){unsigned i=--streams.depth;ww(streams.table[i],streams.length[i]);}
+      break;
+    case 2:case 4:
+      say("\nTranscript/command file output is unavailable.\n");
+      /* A failed transcript selection must not claim success in Flags 2. */
+      wb(17,rb(17)&~1);break;
+    case -2:wb(17,rb(17)&~1);break;
+    case -4:break;
+    default:fatal("invalid output stream");
+  }
+}
 static uint32_t ztext(uint32_t a,unsigned depth) {
   if(depth>8)fatal("abbreviation recursion");
   int shift=0,abbrev=0,escape=0;unsigned high=0;
@@ -162,6 +208,10 @@ static void status(void) {
 }
 static char last_command[120];
 static unsigned last_length;
+static void input_echo(int c) { if(streams.screen&&!streams.depth)console_put(c); }
+static void erase_story_input(unsigned len) {
+  while(len--){input_echo(8);input_echo(' ');input_echo(8);}
+}
 static void erase_input(unsigned len) {
   while(len--){console_put(8);console_put(' ');console_put(8);}
 }
@@ -182,39 +232,85 @@ static void read_line(unsigned text,unsigned parse) {
         if(recalled||!last_length)continue;
         draft_length=len;for(unsigned i=0;i<len;i++)draft[i]=rb(text+1+i);
       }else if(!recalled)continue;
-      erase_input(len);
+      erase_story_input(len);
       const char *source=c==KEY_UP?last_command:draft;
       len=c==KEY_UP?last_length:draft_length;
       if(len>=max)len=max?max-1:0;
-      for(unsigned i=0;i<len;i++){wb(text+1+i,source[i]);console_put(source[i]);}
+      for(unsigned i=0;i<len;i++){wb(text+1+i,source[i]);input_echo(source[i]);}
       recalled=c==KEY_UP;continue;
     }
     if(c=='\r'||c=='\n')break;
-    if(c==8||c==127){if(len){len--;erase_input(1);}continue;}
-    if(c>=32&&c<127&&len+1<max){if(c>='A'&&c<='Z')c+=32;wb(text+1+len++,c);console_put(c);}
+    if(c==8||c==127){if(len){len--;erase_story_input(1);}continue;}
+    if(c>=32&&c<127&&len+1<max){if(c>='A'&&c<='Z')c+=32;wb(text+1+len++,c);input_echo(c);}
   }
   if(len){last_length=len;for(unsigned i=0;i<len;i++)last_command[i]=rb(text+1+i);}
-  console_put('\n');wb(text+1+len,0);tokenize(text,parse);
+  input_echo('\n');wb(text+1+len,0);tokenize(text,parse);
 }
 static uint32_t hash_bytes(uint32_t hash,const uint8_t *p,unsigned n) { while(n--)hash=(hash^*p++)*16777619U;return hash; }
 static uint32_t get32(const uint8_t *p) { return p[0]|(p[1]<<8)|(p[2]<<16)|((uint32_t)p[3]<<24); }
 static void put32(uint8_t *p,uint32_t n) { for(unsigned i=0;i<4;i++)p[i]=n>>(8*i); }
-static unsigned snapshot_size(void) { return sizeof(vm)+dynamic_size; }
+static unsigned snapshot_base_size(void) { return sizeof(vm)+dynamic_size; }
+static unsigned snapshot_size(void) { return snapshot_base_size()+((streams.depth||!streams.screen)?sizeof(streams):0); }
 static uint8_t snapshot_byte(unsigned off) {
+  if(off>=snapshot_base_size())return ((const uint8_t*)&streams)[off-snapshot_base_size()];
   return off<sizeof(vm)?((const uint8_t*)&vm)[off]:dynamic_memory[off-sizeof(vm)];
 }
 static void restore_byte(unsigned off,uint8_t value) {
+  if(off>=snapshot_base_size()){((uint8_t*)&streams)[off-snapshot_base_size()]=value;return;}
   if(off<sizeof(vm))((uint8_t*)&vm)[off]=value;else dynamic_memory[off-sizeof(vm)]=value;
 }
 static int save_header(unsigned bank,uint32_t *generation,uint32_t *hash) {
   if(!storage_read(STORAGE_SAVE_A+bank,0,sector_buf))return 0;
-  if(get32(sector_buf)!=SAVE_MAGIC||get32(sector_buf+8)!=snapshot_size())return 0;
+  unsigned size=get32(sector_buf+8);
+  if(get32(sector_buf)!=SAVE_MAGIC||(size!=snapshot_base_size()&&size!=snapshot_base_size()+sizeof(streams)))return 0;
   for(unsigned i=0;i<STORAGE_ID_BYTES;i++)if(sector_buf[16+i]!=storage_story_id()[i])return 0;
   *generation=get32(sector_buf+4);*hash=get32(sector_buf+12);return 1;
 }
+/* Slot menus live outside the VM/parser state and command history. */
+static int menu_line(char *text,unsigned capacity) {
+  unsigned len=0,escape=0,overflow=0;
+  for(;;) {
+    int c=console_get();
+    if(escape){if(escape==1&&(c=='['||c=='O'))escape=2;else if(c>=0x40&&c<=0x7e)escape=0;continue;}
+    if(c==27){escape=1;continue;}
+    if(c=='\r'||c=='\n'){console_put('\n');text[len]=0;return !overflow;}
+    if(c==8||c==127){if(overflow)overflow--;else if(len){len--;erase_input(1);}continue;}
+    if(c>=32&&c<127){if(len+1<capacity&&!overflow){text[len++]=(char)c;console_put(c);}else overflow++;}
+  }
+}
+static void menu_number(unsigned n) { if(n>=10)menu_number(n/10);console_put('0'+n%10); }
+static int choose_save_slot(int saving) {
+  unsigned count=storage_game_slots();if(!count)return 0;
+  if(count==1)return storage_select_save(0); /* Existing cards keep their flow. */
+  console_story_flush();say(saving?"\nSave slots for ":"\nRestore slots for ");say(storage_story_name());say(":\n");
+  unsigned occupied=0;
+  for(unsigned slot=0;slot<count;slot++) {
+    if(!storage_select_save(slot))return 0;
+    uint32_t generation,hash;int used=save_header(0,&generation,&hash)|save_header(1,&generation,&hash);
+    if(used)occupied|=1U<<slot;
+    menu_number(slot+1);say(used?". Saved\n":". Empty\n");
+  }
+  for(;;) {
+    say("Slot number [Enter=1, 0=cancel]: ");char line[16];
+    if(!menu_line(line,sizeof(line))){say("Invalid slot number.\n");continue;}
+    if((line[0]=='0'||line[0]=='q'||line[0]=='Q')&&!line[1]){say("Cancelled.\n");return 0;}
+    unsigned slot=0,valid=1;
+    for(unsigned i=0;line[i];i++){if(line[i]<'0'||line[i]>'9'){valid=0;break;}slot=slot*10+line[i]-'0';if(slot>count){valid=0;break;}}
+    if(!line[0])slot=1;
+    if(!valid||!slot||slot>count){say("Invalid slot number.\n");continue;}
+    slot--;
+    if(!saving&&!(occupied&(1U<<slot))){say("Slot is empty. Choose a saved slot or cancel.\n");continue;}
+    if(saving&&(occupied&(1U<<slot))) {
+      say("Overwrite slot ");menu_number(slot+1);say("? [y/N]: ");
+      int valid_line=menu_line(line,sizeof(line));
+      if(!valid_line||!((line[0]=='y'||line[0]=='Y')&&!line[1])){say("Overwrite cancelled.\n");continue;}
+    }
+    return storage_select_save(slot);
+  }
+}
 static int save_game(void) {
   console_story_flush();
-  if(!storage_saves_available())return 0;
+  if(!choose_save_slot(1))return 0;
   uint32_t gen[2]={0,0},h;int ok[2];for(unsigned i=0;i<2;i++)ok[i]=save_header(i,&gen[i],&h);
   unsigned newest=ok[1]&&(!ok[0]||(int32_t)(gen[1]-gen[0])>0);unsigned target=(ok[0]||ok[1])?newest^1:0;
   uint32_t hash=2166136261U;unsigned size=snapshot_size();
@@ -232,18 +328,23 @@ static int save_game(void) {
 }
 static int restore_game(void) {
   console_story_flush();
+  if(!choose_save_slot(0))return 0;
   uint32_t gen[2]={0,0},hash[2];int ok[2];for(unsigned i=0;i<2;i++)ok[i]=save_header(i,&gen[i],&hash[i]);
   unsigned newest=ok[1]&&(!ok[0]||(int32_t)(gen[1]-gen[0])>0);
   for(unsigned pass=0;pass<2;pass++) {
     unsigned bank=newest^pass;if(!ok[bank])continue;
     uint32_t sum=2166136261U;
     /* Check entire snapshot before changing the live VM. */
-    unsigned size=snapshot_size();
+    if(!storage_read(STORAGE_SAVE_A+bank,0,sector_buf))continue;
+    unsigned size=get32(sector_buf+8);
     int valid=1;for(unsigned off=0;off<size;off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf)){valid=0;break;}
       unsigned n=size-off;if(n>512)n=512;sum=hash_bytes(sum,sector_buf,n);}
     if(!valid||sum!=hash[bank])continue;
+    reset_streams();
     for(unsigned off=0;off<size;off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf))fatal("restore SD read");
       for(unsigned j=0;j<512&&off+j<size;j++)restore_byte(off+j,sector_buf[j]);}
+    if(streams.depth>16||streams.screen>1)fatal("invalid saved output streams");
+    dynamic_memory[17]&=~1;
     output_window=0;return 1;
   }
   return 0;
@@ -255,6 +356,8 @@ static void restart(void) {
   for(unsigned i=0;i<dynamic_size;i++)dynamic_memory[i]=story(i);
   objects=rw(10);globals=rw(12);dictionary=rw(8);abbreviations=rw(24);vm.pc=rw(6);vm.random=0x12345678;
   dynamic_memory[1]=(dynamic_memory[1]&~0x70); /* status available, split unavailable, variable pitch unavailable */
+  dynamic_memory[17]&=~1; /* No transcript file backend. */
+  reset_streams();
   output_window=0;split_lines=0;stopped=0;
 }
 static uint16_t operand(unsigned type) { if(type==0)return fetchw();unsigned b=fetch();return type==2?variable(b,0):b; }
@@ -312,7 +415,7 @@ static void execute(void) {
     case 7:if(sx<=0){vm.random=sx?-(int)sx:0x12345678;store(0);}else{vm.random^=vm.random<<13;vm.random^=vm.random>>17;vm.random^=vm.random<<5;store(vm.random%x+1);}break;
     case 8:push(x);break;case 9:setvar(x,pop(),1);break;
     case 10:console_story_flush();split_lines=x;break;case 11:console_story_flush();output_window=x&&split_lines;break;
-    case 19:break; /* output_stream: transcript/printer unavailable */
+    case 19:output_stream(sx,y,n);break;
     case 20:break;case 21:break;default:fatal("unknown VAR");
   }
 }

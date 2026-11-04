@@ -1,14 +1,18 @@
 // Behavioral SPI block_addressing/SDSC model used by the actual firmware integration test.
 module sd_spi_model(input wire sck,cs,mosi,output reg miso);
   reg [7:0] disk[0:16777215];reg [7:0] response[0:1023];
-  reg [31:0] save_sectors[0:511];
+  reg [31:0] save_sectors[0:1023];
   reg write_allowed;
   reg [7:0] incoming,command_bytes[0:5],send_byte;
   integer bit_count,command_count,read_ptr,write_ptr,mode,index,sector,reads,writes;
   reg idle;integer i;integer block_addressing;reg [31:0] argument;
   initial begin
     block_addressing=!$test$plusargs("sdsc");
-    if($test$plusargs("wrap"))begin
+    for(i=0;i<1024;i=i+1)save_sectors[i]=32'hffffffff;
+    if($test$plusargs("slots"))begin
+      $readmemh("impl/test-slots.hex",disk);
+      $readmemh("impl/test-slots-save-sectors.hex",save_sectors);
+    end else if($test$plusargs("wrap"))begin
       $readmemh("impl/test-wrap.hex",disk);
       $readmemh("impl/test-wrap-save-sectors.hex",save_sectors);
     end else if($test$plusargs("v3"))begin
@@ -55,7 +59,7 @@ module sd_spi_model(input wire sck,cs,mosi,output reg miso);
             24:begin
               sector=block_addressing?argument:argument/512;
               write_allowed=0;
-              for(j=0;j<512;j=j+1)if(sector==save_sectors[j])write_allowed=1;
+              for(j=0;j<($test$plusargs("slots")?1024:512);j=j+1)if(sector==save_sectors[j])write_allowed=1;
               if(!write_allowed)$fatal(1,"write outside save files: LBA %0d",sector);
               enqueue(0);mode=1;
             end

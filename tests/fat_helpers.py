@@ -41,8 +41,10 @@ class FatImage:
 
     def chain(self, cluster):
         result = []
+        seen = set()
         while cluster < self.eoc-7:
-            assert cluster >= 2 and cluster not in result
+            assert cluster >= 2 and cluster not in seen
+            seen.add(cluster)
             result.append(cluster)
             cluster = self.next(cluster)
         return result

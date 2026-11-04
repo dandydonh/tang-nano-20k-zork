@@ -25,13 +25,16 @@ Download the prebuilt **20-story SDRAM bitstream** from the
 Download `zork.fs` and `SHA256SUMS` together and verify with
 `sha256sum -c SHA256SUMS`. Place the bitstream at `impl/pnr/zork.fs` to use
 `./program_flash.sh`, after checking its device, cable index and channel.
-You can also build it from the source below.
+Current source adds selectable save slots and corrects screen/memory output
+streams; these changes are not in v0.3.0. Build the current source below to
+use them. Expanded pools require the new firmware.
 
 Stories load from SD into integrated SDRAM at startup; firmware is embedded in
 the FPGA bitstream. Adding a compatible **V3** story requires file copying and
 reset. **V5 is not supported** by this release. Up to 20 DAT entries and 20 saved
-story identities are supported; see the 5 MiB save-pool preparation and upgrade
-instructions below. The older
+story identities are supported. That release uses a 5 MiB pool and one save
+position per game. Current source defaults to five positions per game in a
+25 MiB pool; see preparation and upgrade instructions below. The older
 [v0.2.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.2.0)
 contains the earlier fixed-Zork-I FAT firmware.
 
@@ -81,12 +84,21 @@ right edge; the transcript scrolls below it.
    found, they are listed alphabetically by displayed filename. Enter a story
    number and press Enter. Reset to choose again.
 
-Type the story's `save` and `restore` commands to use its latest valid snapshot.
-Each saved story has an independent pair of alternating snapshots, selected by
-story identity. Saves persist in `SAVES.BIN`; the format is private to this
-firmware, not Frotz/Quetzal compatible. The new save-pool format does not import
-v0.2.0 `SAVEA.BIN`/`SAVEB.BIN` files or the earlier 512 KiB `SAVES.BIN`;
-those files are left untouched.
+Type the story's `save` or `restore` command. With a multi-slot pool, the
+firmware lists numbered slots as **Saved** or **Empty**. Enter a slot number
+and press Enter using serial or PS/2; Enter alone selects slot 1. Enter `0` or
+`q` to cancel. Saving to an occupied slot asks `Overwrite slot N? [y/N]:`;
+only `y` followed by Enter approves replacement. Declining returns to slot
+selection. RESTORE rejects empty slots and lets you choose again or cancel.
+Cancellation returns the story's normal save/restore failure response.
+
+Each game has independent numbered positions. Every position retains two
+alternating recovery banks; RESTORE loads its newest valid snapshot and falls
+back to the older bank if necessary. **Saved** indicates a recognized snapshot
+header; full payload validation happens during RESTORE. Existing 2/5 MiB pools
+continue to work with one position and no slot prompt. Expand a backup as below
+to enable multiple positions. Saves use a private format, not Frotz/Quetzal.
+Earlier 512 KiB pools and v0.2.0 SAVEA/SAVEB snapshots cannot be imported.
 
 ### Standalone PS/2 keyboard
 
@@ -184,16 +196,24 @@ Initial compatibility limits:
   with a core error. There is no claim that every V3 story will work.
 - Score/moves and time-based V3 status are supported. Split-window output,
   printer/transcripts and sound are unavailable.
+- Output stream 1 can be enabled/disabled. Stream 3 captures raw ZSCII into
+  dynamic memory, including newlines, with up to 16 nested tables; captured
+  text bypasses the display and wrapping. Unsupported transcript/command-file
+  selections report their unavailability; the transcript header bit stays clear.
+  Existing ZMV5 saves load normally. Saves made with screen output disabled or
+  memory capture active include a stream-state trailer and require this newer
+  firmware to restore; ordinary saves retain the previous layout.
 
 ### One-time save preparation
 
-Persistent saves use one **5 MiB** preallocated file:
+Fresh preparation defaults to **five selectable saves per game** for up to
+20 story identities, using one **25 MiB** preallocated file:
 
 ```text
 ZORK/
   ZORK1.DAT     A compatible story, any supported size
   ZORK2.DAT     Another compatible story (optional)
-  SAVES.BIN     Exactly 5242880 bytes; initially all zeros
+  SAVES.BIN     Exactly 26214400 bytes by default; initially all zeros
 ```
 
 For an existing card with a `ZORK` folder, this creates only a missing save pool:
@@ -207,24 +227,27 @@ then copy just `SAVES.BIN` onto the card. The script refuses to overwrite it and
 leaves existing stories and old save files untouched. Without a valid writable
 pool, stories still play, but SAVE/RESTORE is disabled with an explanation.
 
-**Upgrading from the previous loader:** with the board powered off, back up and
-move the old 512 KiB `ZORK/SAVES.BIN` off the card, then create/copy the new
-5 MiB file. The `ZMV5` format cannot import earlier snapshots. The preparation
-script refuses to overwrite an existing file; do not replace a new-format pool
-after it contains saves you want to retain.
-
-**Expanding an existing 2 MiB ZMV5 pool:** the new firmware still reads and
-writes it, with its original eight-identity capacity. With the board off, copy
-it to your computer and keep that backup. Create an expanded copy:
+**Preserve existing ZMV5 saves:** with the board powered off, copy the card's
+`ZORK/SAVES.BIN` to your computer and keep that backup. Expand a copy:
 
 ```bash
 python3 scripts/make_sd.py --expand-saves /path/to/backup/SAVES.BIN --output /tmp/SAVES.BIN
 ```
 
-The new file is 5 MiB: all original bytes stay in place, followed by 12 blank
-identity slots. Existing output files are refused. Copy the expanded file to
-`ZORK/SAVES.BIN` on the card, safely eject and reboot. This expansion applies
-only to the 2 MiB ZMV5 pool; earlier 512 KiB snapshots cannot be imported.
+The default output is 25 MiB. All original bytes stay at their original offsets;
+existing saves become player slot 1. Additional slots start empty. This accepts
+old 2 MiB/eight-game pools, 5 MiB/twenty-game pools, and smaller multi-slot pools.
+Existing outputs and shrinking/equal-capacity requests are refused. Copy the
+expanded file to `ZORK/SAVES.BIN` with the board off, safely eject and reboot
+with the new firmware. Keep the original backup for the old firmware, which
+does not accept expanded pools.
+
+Use `--save-slots N` for **1–20 positions per game** when preparing or expanding
+pools. Each position adds 5 MiB: five positions use 25 MiB, ten use 50 MiB,
+and twenty use 100 MiB. `--save-slots 1` prepares a single-position 5 MiB pool.
+Legacy 512 KiB/SAVEA/SAVEB snapshots remain incompatible; preserve those files
+separately before preparing a fresh pool. Never replace wanted saves with a
+blank template.
 
 To prepare a fresh staging directory with one or more stories:
 
@@ -237,14 +260,16 @@ python3 scripts/make_sd.py --directory /tmp/v3-card-files --story ./zork1.dat
 Copy the resulting `ZORK` folder to the FAT card's root. Fresh preparation refuses
 an existing `ZORK` folder so it cannot replace saved games. For a fresh disk image
 instead, use `--output /tmp/v3-sdram-fat.img`; default is a 65 MiB disk image with a
-64 MiB FAT32 partition. `--fat 16` selects an 8 MiB FAT16 volume and
+64 MiB FAT32 partition. `--fat 16` selects a FAT16 volume sized for the requested files (normally
+28 MiB with five slots); larger configurations should use FAT32. The option
 `--superfloppy` omits the MBR. Image generation refuses existing output paths and
 never writes a physical device. Writing an image to a card replaces its contents;
 normal story-file copying preserves unrelated files.
 
 ### Saves and filesystem limits
 
-The pool holds **20 story identities**, each with two 128 KiB snapshot banks.
+The pool holds **20 story identities**, each with the configured number of
+player-selectable positions. Each position has two 128 KiB snapshot banks.
 Identity uses release, serial, checksum, logical story size and writable-memory size;
 renaming a story or adding/removing trailing padding preserves its saves,
 and different releases normally use
@@ -254,7 +279,7 @@ while retaining access to existing ones. Back up the entire `SAVES.BIN` file
 with the board powered off. No automatic slot deletion occurs.
 
 Firmware resolves file chains at startup and writes only the selected story's
-save-pair data sectors. It never writes FAT tables, FSInfo or directory entries,
+currently selected position's save-pair data sectors. It never writes FAT tables, FSInfo or directory entries,
 or creates/resizes files. Timestamps remain unchanged. Snapshot payload is
 written before its commit header; each SD write waits for the card to finish
 being busy. Hash verification and alternating banks allow fallback to an older

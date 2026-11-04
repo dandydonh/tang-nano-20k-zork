@@ -90,10 +90,10 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
     stage = temp/'stage'
     stage.mkdir()
     (stage/'unrelated.txt').write_bytes(b'keep me')
-    command([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage])
+    command([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--directory', stage])
     assert (stage/'unrelated.txt').read_bytes() == b'keep me'
     saved = (stage/'ZORK/SAVES.BIN').read_bytes()
-    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage], capture_output=True)
+    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--directory', stage], capture_output=True)
     assert refused.returncode != 0 and (stage/'ZORK/SAVES.BIN').read_bytes() == saved
     for fat, mib, spc in ((16, 16, 4), (32, 128, 2)):
         with image.open('wb') as stream:
@@ -212,6 +212,6 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         image.write_bytes(broken)
         command([ROOT/'impl/storage-test', image], expected=2)
     image.write_bytes(valid.data)
-    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--output', image], capture_output=True)
+    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--output', image], capture_output=True)
     assert refused.returncode != 0 and image.read_bytes() == valid.data
     print('PASS active FAT32 table selection, invalid FAT32/partition geometry and existing-image preservation')

@@ -10,9 +10,12 @@
 #define STORAGE_STORY_LIMIT 20U
 #define STORAGE_SAVE_SLOTS 20U
 #define STORAGE_LEGACY_SLOTS 8U
+/* Player positions per story; each plane retains twenty story identities. */
+#define STORAGE_GAME_SLOTS 20U
 #define STORAGE_BANK_BYTES 131072U
 #define STORAGE_BANK_SECTORS (STORAGE_BANK_BYTES/512U)
-#define STORAGE_POOL_BYTES (STORAGE_SAVE_SLOTS * 2U * STORAGE_BANK_BYTES)
+#define STORAGE_PLANE_BYTES (STORAGE_SAVE_SLOTS * 2U * STORAGE_BANK_BYTES)
+#define STORAGE_POOL_BYTES (STORAGE_GAME_SLOTS * STORAGE_PLANE_BYTES)
 enum { STORAGE_STORY, STORAGE_SAVE_A, STORAGE_SAVE_B };
 int storage_init(void);
 int storage_read(unsigned file, unsigned sector, uint8_t *data);
@@ -22,4 +25,6 @@ uint32_t storage_story_size(void);
 const char *storage_story_name(void);
 const uint8_t *storage_story_id(void);
 int storage_saves_available(void);
+unsigned storage_game_slots(void);
+int storage_select_save(unsigned slot);
 #endif
