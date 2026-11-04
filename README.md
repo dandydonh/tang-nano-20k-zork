@@ -25,8 +25,8 @@ Download the prebuilt FAT bitstream and checksum from the
 The bitstream is **`impl/pnr/zork.fs`**. This firmware reads story and save
 files from a **FAT16/FAT32 microSD card**, alongside your other files.
 The story is on SD; firmware is in the bitstream. The FAT build has been
-programmed and verified, and the user confirms SD save/restore and persistence
-across power cycles work on hardware. The earlier raw-format release was also
+programmed and verified. SD save/restore and persistence across power cycles
+have been confirmed on hardware. The earlier raw-format release was also
 verified for serial and HDMI output.
 PS/2 input still needs hardware validation. See [build and validation results](BUILD_RESULT.md).
 
