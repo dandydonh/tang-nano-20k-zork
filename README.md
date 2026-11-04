@@ -20,29 +20,27 @@ FPGA programming, and SD card preparation.
 Zork I story data is not included.
 
 
-Download the prebuilt **20-story SDRAM bitstream** from the
-[v0.3.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.3.0).
+Download the prebuilt **selectable-save and output-stream bitstream** from the
+[v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0).
 Download `zork.fs` and `SHA256SUMS` together and verify with
 `sha256sum -c SHA256SUMS`. Place the bitstream at `impl/pnr/zork.fs` to use
 `./program_flash.sh`, after checking its device, cable index and channel.
-Current source adds selectable save slots and corrects screen/memory output
-streams; these changes are not in v0.3.0. Build the current source below to
-use them. Expanded pools require the new firmware.
+This prerelease includes selectable save slots and corrected screen/memory
+output streams. Expanded pools require this firmware or newer.
 
 Stories load from SD into integrated SDRAM at startup; firmware is embedded in
 the FPGA bitstream. Adding a compatible **V3** story requires file copying and
 reset. **V5 is not supported** by this release. Up to 20 DAT entries and 20 saved
-story identities are supported. That release uses a 5 MiB pool and one save
-position per game. Current source defaults to five positions per game in a
-25 MiB pool; see preparation and upgrade instructions below. The older
-[v0.2.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.2.0)
-contains the earlier fixed-Zork-I FAT firmware.
+story identities are supported, with five save positions per game by default in
+a 25 MiB pool. Existing 2/5 MiB pools retain one position per game; see
+preparation and upgrade instructions below. Previous release pages and assets
+have been removed; historical source tags remain available.
 
-This exact v0.3.0 bitstream has passed flash programming/readback verification.
-A hardware serial screenshot confirms the discovered menu through entry 19.
-Expanded-pool save/restore, power-cycle persistence, HDMI and PS/2 behavior still
-need hardware observation for this build. Earlier v0.2.0 save/restore and
-power-cycle persistence were confirmed on hardware.
+This exact v0.4.0 bitstream has passed persistent flash programming/readback
+verification. All seven processor simulations and the full software/RTL suite
+pass. Physical stream behavior, selectable saves, power-cycle persistence,
+HDMI and PS/2 still need observation for this build. Earlier-build hardware
+observations do not establish those results for this prerelease.
 See [build and validation results](BUILD_RESULT.md).
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).

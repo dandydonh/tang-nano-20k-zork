@@ -39,7 +39,7 @@ Board flash now contains
 `d0bb5fccbbe331262fac20bcabb25abb8b41739e10f83fab929af1d99dbac705`.
 Programming/readback is verified. Physical streams/gameplay/HDMI/PS2/slot UI
 and actual power-cycle persistence of this build remain unobserved. No physical
-SD card writes or publication occurred. This current status supersedes historical
+SD card writes occurred. This current status supersedes historical
 board-state statements below.
 
 ## Deliverables and SD preparation
@@ -64,7 +64,7 @@ preserves all bytes at their original offsets, fills unused story identities,
 and appends player positions. It accepts existing 2/5 MiB and smaller multi-slot
 pools. Default output is 25 MiB (five positions); `--save-slots N` allows 1..20.
 Old saves become position 1. Back up wanted saves first.
-The published v0.2.0 release remains the earlier fixed-Zork FAT implementation.
+The historical v0.2.0 source tag contains the earlier fixed-Zork FAT implementation.
 
 ## Memory and SDRAM controller
 
@@ -357,9 +357,20 @@ power-cycle behavior await observation. SD files were not modified.
 
 ## v0.3.0 publication
 
-The source and the programmed twenty-story bitstream are published as the
-[v0.3.0 SDRAM V3 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.3.0).
-Release attachments are `zork.fs` and a standalone `SHA256SUMS` for that file.
+The source and the programmed twenty-story bitstream were published as the
+v0.3.0 SDRAM V3 preview. Its release page/assets have been superseded by v0.4.0;
+the [v0.3.0 source tag](https://github.com/dandydonh/tang-nano-20k-zork/tree/v0.3.0)
+remains available. Its release attachments were `zork.fs` and `SHA256SUMS`.
 No story files or SD images are attached. V5 remains unsupported. The supplied
 hardware serial screenshot confirms directory discovery/menu rendering through
 entry 19; it does not validate expanded saves, HDMI or PS/2 on this build.
+
+## v0.4.0 prerelease
+
+The selectable-save and output-stream build is distributed as the
+[v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0),
+with `zork.fs` and a standalone `SHA256SUMS`. This is the exact tested and
+flash/readback-verified bitstream identified above. Previous release pages and
+assets are removed at the user's request; historical Git tags remain available.
+No story data or SD image is attached. Physical behavior of this build remains
+unobserved as described above.
