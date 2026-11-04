@@ -60,7 +60,8 @@ The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
    below. Existing unrelated files can remain on the card. The older raw-format
    bitstream/release requires its old card image; it cannot use these FAT files.
 2. Insert the card into the board's microSD slot. Leave it inserted during play.
-3. Connect HDMI to a display accepting 1280x720 at 60 Hz, or use serial I/O.
+3. For HDMI output, connect a display accepting 1280x720 at 60 Hz. If using
+   serial I/O, no HDMI connection or display is required.
 4. Connect a keyboard using either method below, and program the new
    `impl/pnr/zork.fs` when ready. The existing `./program_flash.sh` uses device
    GW2AR-18C, cable 4, channel 0, flash operation 9.
