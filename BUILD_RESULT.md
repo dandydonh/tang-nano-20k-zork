@@ -369,7 +369,9 @@ entry 19; it does not validate expanded saves, HDMI or PS/2 on this build.
 
 The selectable-save and output-stream build is distributed as the
 [v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0),
-with `zork.fs` and a standalone `SHA256SUMS`. This is the exact tested and
+with `zork.fs`, a blank 25 MiB `SAVES.BIN`, and `SHA256SUMS` covering both.
+The pool is for fresh saves only; expand a backup to preserve existing saves.
+This is the exact tested and
 flash/readback-verified bitstream identified above. Previous release pages and
 assets are removed at the user's request; historical Git tags remain available.
 No story data or SD image is attached. Physical behavior of this build remains

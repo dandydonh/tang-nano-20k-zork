@@ -22,9 +22,12 @@ Zork I story data is not included.
 
 Download the prebuilt **selectable-save and output-stream bitstream** from the
 [v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0).
-Download `zork.fs` and `SHA256SUMS` together and verify with
+Download `zork.fs`, the blank `SAVES.BIN`, and `SHA256SUMS` together and verify with
 `sha256sum -c SHA256SUMS`. Place the bitstream at `impl/pnr/zork.fs` to use
 `./program_flash.sh`, after checking its device, cable index and channel.
+The attached `SAVES.BIN` is a blank 25 MiB pool for fresh saves. With the board
+off, copy it to `/ZORK/SAVES.BIN` only if no wanted saves exist there. Expand a
+backup of an existing pool using the instructions below to retain those saves.
 This prerelease includes selectable save slots and corrected screen/memory
 output streams. Expanded pools require this firmware or newer.
 
