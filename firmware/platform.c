@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "storage.h"
 #define REG(n) (*(volatile uint32_t *)(0x20000000U+(n)))
 #define TEXT ((volatile uint32_t *)0x10000000U)
 static unsigned row=1,column=0;
@@ -91,15 +92,17 @@ static int sd_init(void){
   if(!high_capacity&&command(16,512)){deselect();return 0;}
   deselect();REG(12)=3;return 1;
 }
-int disk_read(uint32_t sector,uint8_t *data){
+int sd_read_sector(uint32_t sector,uint8_t *data){
+  if(!high_capacity&&sector>UINT32_MAX/512U)return 0;
   if(command(17,high_capacity?sector:sector*512)){deselect();return 0;}
   unsigned r=255;for(unsigned i=0;i<100000;i++){r=spi(255);if(r!=255)break;}
   if(r!=254){deselect();return 0;}
   for(unsigned i=0;i<512;i++)data[i]=spi(255);spi(255);spi(255);deselect();return 1;
 }
-int disk_write(uint32_t sector,const uint8_t *data){
-  /* The story and card metadata are never writable by the interpreter. */
-  if(sector<256||sector>=384)return 0;
+int sd_write_sector(uint32_t sector,const uint8_t *data){
+  /* Only mapped save-file data sectors are writable. */
+  if(!storage_writable(sector))return 0;
+  if(!high_capacity&&sector>UINT32_MAX/512U)return 0;
   if(command(24,high_capacity?sector:sector*512)){deselect();return 0;}
   spi(255);spi(254);for(unsigned i=0;i<512;i++)spi(data[i]);spi(255);spi(255);
   unsigned r=spi(255);if((r&31)!=5){deselect();return 0;}

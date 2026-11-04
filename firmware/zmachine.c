@@ -1,11 +1,10 @@
 /* Dedicated version 3 Z-machine interpreter. All story addresses are byte addresses. */
 #include "platform.h"
+#include "storage.h"
 #define DYNAMIC_MAX 12288
 #define STACK_MAX 2048
 #define FRAME_MAX 96
 #define STORY_SECTORS 180
-#define SAVE_BASE 256
-#define SAVE_STRIDE 64
 #define SAVE_MAGIC 0x33564d5aU
 struct frame { uint32_t pc; uint16_t base; uint8_t result, pad; uint16_t locals[15]; };
 struct machine {
@@ -34,7 +33,7 @@ static uint8_t story(uint32_t a) {
   if(a >= STORY_SECTORS*512U) { fatal("story address"); return 0; }
   unsigned tag=a/512,line=tag&31;
   if (cache_tags[line] != tag) {
-    if (!disk_read(1+tag,cache[line])) fatal("SD story read");
+    if (!storage_read(STORAGE_STORY,tag,cache[line])) fatal("SD story read");
     cache_tags[line]=tag;
   }
   return cache[line][a&511];
@@ -194,7 +193,7 @@ static uint32_t hash_bytes(uint32_t hash,const uint8_t *p,unsigned n) { while(n-
 static uint32_t get32(const uint8_t *p) { return p[0]|(p[1]<<8)|(p[2]<<16)|((uint32_t)p[3]<<24); }
 static void put32(uint8_t *p,uint32_t n) { for(unsigned i=0;i<4;i++)p[i]=n>>(8*i); }
 static int save_header(unsigned bank,uint32_t *generation,uint32_t *hash) {
-  if(!disk_read(SAVE_BASE+bank*SAVE_STRIDE,sector_buf))return 0;
+  if(!storage_read(STORAGE_SAVE_A+bank,0,sector_buf))return 0;
   if(get32(sector_buf)!=SAVE_MAGIC||get32(sector_buf+8)!=sizeof(vm)||get32(sector_buf+16)!=0x84072658U)return 0;
   *generation=get32(sector_buf+4);*hash=get32(sector_buf+12);return 1;
 }
@@ -204,12 +203,12 @@ static int save_game(void) {
   uint32_t hash=hash_bytes(2166136261U,(const uint8_t*)&vm,sizeof(vm));
   for(unsigned offset=0;offset<sizeof(vm);offset+=512) {
     for(unsigned j=0;j<512;j++)sector_buf[j]=offset+j<sizeof(vm)?((uint8_t*)&vm)[offset+j]:0;
-    if(!disk_write(SAVE_BASE+target*SAVE_STRIDE+1+offset/512,sector_buf))return 0;
+    if(!storage_write(target,1+offset/512,sector_buf))return 0;
   }
   for(unsigned i=0;i<512;i++)sector_buf[i]=0;
   put32(sector_buf,SAVE_MAGIC);put32(sector_buf+4,gen[newest]+1);put32(sector_buf+8,sizeof(vm));
   put32(sector_buf+12,hash);put32(sector_buf+16,0x84072658U);
-  return disk_write(SAVE_BASE+target*SAVE_STRIDE,sector_buf);
+  return storage_write(target,0,sector_buf);
 }
 static int restore_game(void) {
   uint32_t gen[2]={0,0},hash[2];int ok[2];for(unsigned i=0;i<2;i++)ok[i]=save_header(i,&gen[i],&hash[i]);
@@ -218,10 +217,10 @@ static int restore_game(void) {
     unsigned bank=newest^pass;if(!ok[bank])continue;
     uint32_t sum=2166136261U;
     /* Check entire snapshot before changing the live VM. */
-    int valid=1;for(unsigned off=0;off<sizeof(vm);off+=512){if(!disk_read(SAVE_BASE+bank*SAVE_STRIDE+1+off/512,sector_buf)){valid=0;break;}
+    int valid=1;for(unsigned off=0;off<sizeof(vm);off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf)){valid=0;break;}
       unsigned n=sizeof(vm)-off;if(n>512)n=512;sum=hash_bytes(sum,sector_buf,n);}
     if(!valid||sum!=hash[bank])continue;
-    for(unsigned off=0;off<sizeof(vm);off+=512){if(!disk_read(SAVE_BASE+bank*SAVE_STRIDE+1+off/512,sector_buf))fatal("restore SD read");
+    for(unsigned off=0;off<sizeof(vm);off+=512){if(!storage_read(STORAGE_SAVE_A+bank,1+off/512,sector_buf))fatal("restore SD read");
       for(unsigned j=0;j<512&&off+j<sizeof(vm);j++)((uint8_t*)&vm)[off+j]=sector_buf[j];}
     invalidate_cache();output_window=0;return 1;
   }
@@ -297,6 +296,6 @@ static void execute(void) {
 }
 int main(void) {
   platform_init();say("SD story and persistent SAVE / RESTORE\n\n");
-  if(!disk_read(0,sector_buf)||get32(sector_buf)!=0x44534b5aU)fatal("prepare SD with scripts/make_sd.py");
+  if(!storage_init())fatal("requires FAT16/FAT32: ZORK/ZORK1.DAT and two 32768-byte SAVEA.BIN/SAVEB.BIN files");
   restart();while(!stopped)execute();say("\nGame stopped. Press reset to play again.\n");return 0;
 }

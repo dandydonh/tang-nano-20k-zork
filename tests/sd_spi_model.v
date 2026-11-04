@@ -1,12 +1,21 @@
 // Behavioral SPI block_addressing/SDSC model used by the actual firmware integration test.
 module sd_spi_model(input wire sck,cs,mosi,output reg miso);
-  reg [7:0] disk[0:1048575];reg [7:0] response[0:1023];
+  reg [7:0] disk[0:4194303];reg [7:0] response[0:1023];
+  reg [31:0] save_sectors[0:127];
+  reg write_allowed;
   reg [7:0] incoming,command_bytes[0:5],send_byte;
   integer bit_count,command_count,read_ptr,write_ptr,mode,index,sector,reads,writes;
   reg idle;integer i;integer block_addressing;reg [31:0] argument;
   initial begin
     block_addressing=!$test$plusargs("sdsc");
-    $readmemh("impl/test-sd.hex",disk);miso=1;bit_count=0;command_count=0;
+    if($test$plusargs("fat32"))begin
+      $readmemh("impl/test-fat32.hex",disk);
+      $readmemh("impl/test-fat32-save-sectors.hex",save_sectors);
+    end else begin
+      $readmemh("impl/test-sd.hex",disk);
+      $readmemh("impl/test-sd-save-sectors.hex",save_sectors);
+    end
+    miso=1;bit_count=0;command_count=0;
     read_ptr=0;write_ptr=0;mode=0;idle=1;reads=0;writes=0;incoming=0;
   end
   task enqueue(input [7:0] value);begin response[write_ptr]=value;write_ptr=write_ptr+1;end endtask
@@ -30,13 +39,15 @@ module sd_spi_model(input wire sck,cs,mosi,output reg miso);
             58:begin enqueue(0);enqueue(block_addressing?8'hc0:8'h80);enqueue(8'hff);enqueue(8'h80);enqueue(0);end
             16:begin if(argument!=512)$fatal(1,"bad block size");enqueue(0);end
             17:begin
-              sector=block_addressing?argument:argument/512;if(sector>=2048)$fatal(1,"read outside image");
+              sector=block_addressing?argument:argument/512;if(sector<0||sector>=8192)$fatal(1,"read outside image");
               reads=reads+1;enqueue(0);enqueue(255);enqueue(254);
               for(j=0;j<512;j=j+1)enqueue(disk[sector*512+j]);enqueue(255);enqueue(255);
             end
             24:begin
               sector=block_addressing?argument:argument/512;
-              if(sector<256||sector>=384)$fatal(1,"write outside save area");
+              write_allowed=0;
+              for(j=0;j<128;j=j+1)if(sector==save_sectors[j])write_allowed=1;
+              if(!write_allowed)$fatal(1,"write outside save files: LBA %0d",sector);
               enqueue(0);mode=1;
             end
             default:begin $display("Unexpected SD command %d",command_bytes[0]&63);enqueue(4);end

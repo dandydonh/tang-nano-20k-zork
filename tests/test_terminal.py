@@ -8,7 +8,7 @@ title = 'ZORK I - Tang Nano 20K'
 status = re.compile(r'\x1b7\x1b\[1;1H\x1b\[2K' + re.escape(title) +
                     r'\x1b\[999C\x1b\[(\d+)D(Score: (-?\d+) +Moves: (\d+))\x1b8')
 
-for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log'):
+for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.log'):
     # read_bytes preserves the actual UART CR/LF bytes.
     stream = Path(logfile).read_bytes().decode()
     frames = status.findall(stream)

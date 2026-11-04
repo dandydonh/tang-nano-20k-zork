@@ -12,8 +12,9 @@ if ! command -v "$iverilog_bin" >/dev/null 2>&1; then
   ivl_args=(-B /tmp/zork-tools/usr/lib/x86_64-linux-gnu/ivl)
 fi
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
-  -DHOST -Ifirmware firmware/zmachine.c tests/host_platform.c -o impl/zork-host
+  -DHOST -Ifirmware firmware/zmachine.c firmware/storage.c tests/host_platform.c -o impl/zork-host
 python3 tests/test_story.py
+python3 tests/test_fat.py
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s peripherals_tb -o impl/tests/peripherals \
   tests/peripherals_tb.v src/spi_byte.v src/ps2_receiver.v src/uart.v
 "$vvp_bin" impl/tests/peripherals
@@ -26,12 +27,23 @@ python3 tests/test_story.py
 ./scripts/build_firmware.sh
 python3 - <<'PY'
 from pathlib import Path
-import subprocess
-p=Path('impl/tests/card.img')
-# Test files are disposable; the delivery image and real saves are never touched.
-if p.exists(): p.unlink()
-subprocess.run(['python3','scripts/make_sd.py','--output',str(p)],check=True)
-Path('impl/test-sd.hex').write_text(''.join(f'{v:02x}\n' for v in p.read_bytes()))
+import sys
+sys.path.insert(0,'tests')
+sys.path.insert(0,'scripts')
+from fat_helpers import FatImage
+from make_sd import make_image, project_files
+files=project_files(Path('zork1.dat').read_bytes())
+# Disposable fragmented fixtures; delivery images and real saves are untouched.
+for fat,tag,partitioned in ((16,'sd',False),(32,'fat32',True)):
+    layout=FatImage(make_image(files,fat,4 if fat==16 else 64,partitioned))
+    for name,first in (('ZORK1.DAT',1000),('SAVEA.BIN',2000),('SAVEB.BIN',2500)):
+        layout.fragment(name,first)
+    sectors=layout.sectors('SAVEA.BIN')+layout.sectors('SAVEB.BIN')
+    assert max(sectors)<8192
+    Path(f'impl/test-{tag}-save-sectors.hex').write_text(''.join(f'{v:08x}\n' for v in sectors))
+    # Only the first 4 MiB is backed by the model. All accessed sectors,
+    # including the two FATs and fragmented files, are in that range.
+    Path(f'impl/test-{tag}.hex').write_text(''.join(f'{v:02x}\n' for v in layout.data[:4*1024*1024]))
 PY
 verilator_bin="${VERILATOR:-verilator}"
 if ! command -v "$verilator_bin" >/dev/null 2>&1; then
@@ -44,16 +56,16 @@ fi
   > impl/verilator-build.log 2>&1
 impl/verilator-soc/Vsoc_tb | tee impl/soc-verilator.log
 impl/verilator-soc/Vsoc_tb +sdsc | tee impl/soc-sdsc.log
+impl/verilator-soc/Vsoc_tb +fat32 | tee impl/soc-fat32.log
 python3 - <<'PY'
 from pathlib import Path
-s=Path('impl/soc-verilator.log').read_text()
-sdsc=Path('impl/soc-sdsc.log').read_text()
-assert 'PASS soc boot' in sdsc and sdsc.count('West of House')==6
-assert 'PASS soc boot' in s
-assert 'CORE ERROR' not in s
-assert s.count('West of House')==6, s
-assert s.count('North of House')==1, s
-assert s.count('Ok.')==3, s
+for name in ('soc-verilator.log','soc-sdsc.log','soc-fat32.log'):
+    s=Path('impl',name).read_text()
+    assert 'PASS soc boot' in s, name
+    assert 'CORE ERROR' not in s, name
+    assert s.count('West of House')==6, (name,s)
+    assert s.count('North of House')==1, (name,s)
+    assert s.count('Ok.')==3, (name,s)
 print('PASS integrated transcript assertions and reset persistence')
 PY
 python3 tests/test_terminal.py

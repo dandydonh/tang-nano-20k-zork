@@ -19,11 +19,16 @@ FPGA programming, and SD card preparation.
 Zork I story data is not included.
 
 
-The bitstream is **`impl/pnr/zork.fs`**. The matching SD image is
-**`assets/zork-sd.img`**. Both are needed: the story is on SD, firmware is in
-the bitstream. Persistent flash programming and verification succeeded;
-the corrected serial header is confirmed on hardware in the screenshot below.
-PS/2 input still needs hardware validation.
+Download the prebuilt FAT bitstream and checksum from the
+[v0.2.0 release](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.2.0).
+
+The bitstream is **`impl/pnr/zork.fs`**. This firmware reads story and save
+files from a **FAT16/FAT32 microSD card**, alongside your other files.
+The story is on SD; firmware is in the bitstream. The FAT build has been
+programmed and verified, and the user confirms SD save/restore and persistence
+across power cycles work on hardware. The earlier raw-format release was also
+verified for serial and HDMI output.
+PS/2 input still needs hardware validation. See [build and validation results](BUILD_RESULT.md).
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
 Zork story data (`zork1.dat` and copies in SD images) is copyrighted third-party
@@ -51,16 +56,15 @@ Serial output from the Tang Nano 20K after the corrected firmware was flashed.
 The fixed header shows `ZORK I - Tang Nano 20K` on the left and **Score** and
 **Moves** at the terminal’s right edge; the game transcript scrolls below it.
 
-1. Write `assets/zork-sd.img` as a **whole-card disk image** to a dedicated
-   microSD card. This replaces the card's partition table and existing contents.
-   Copying the image or `zork1.dat` into a normal FAT filesystem does not work.
+1. Prepare a FAT16/FAT32 microSD card with the `ZORK` directory described
+   below. Existing unrelated files can remain on the card. The older raw-format
+   bitstream/release requires its old card image; it cannot use these FAT files.
 2. Insert the card into the board's microSD slot. Leave it inserted during play.
-3. Connect HDMI to a display accepting 1280x720 at 60 Hz. This step not needed if
-   using serial i/o.
-5. Connect a keyboard using either method below, and program `impl/pnr/zork.fs`
-   when ready. The existing `./program_flash.sh` uses device GW2AR-18C,
-   cable 4, channel 0, flash operation 9.
-6. Press the reset button on package pin 88 if necessary. The game opens at
+3. Connect HDMI to a display accepting 1280x720 at 60 Hz, or use serial I/O.
+4. Connect a keyboard using either method below, and program the new
+   `impl/pnr/zork.fs` when ready. The existing `./program_flash.sh` uses device
+   GW2AR-18C, cable 4, channel 0, flash operation 9.
+5. Press the reset button on package pin 88 if necessary. The game opens at
    West of House. Enter commands such as `look`, `open mailbox`, `read leaflet`.
 
 Type `save` to save, and `restore` to load the latest valid save. There is one
@@ -123,42 +127,80 @@ commands while the game is producing output. PS/2 and serial inputs can both
 be connected. User serial output has been observed in Minicom; PS/2 hardware
 remain unverified.
 
-## SD layout
+## SD files and preparation
 
-The card uses a small dedicated **raw layout, not FAT**, avoiding dependence
-on filesystem allocation during saves. The computer may offer to format it;
-formatting would destroy the game and saves. Back up the first 1 MiB as an image
-for a complete backup, including both saves.
+Use a **FAT16 or FAT32** filesystem with 512-byte sectors. A normal FAT32 card
+can also hold unrelated files and directories, including VFAT long filenames.
+Cards sold formatted as exFAT need a FAT32 filesystem instead; exFAT is not
+supported. Formatting removes existing contents, so back them up first.
 
-| 512-byte sector | Content |
-| --- | --- |
-| 0 | `ZKSD` identifier, format version, story length, SHA-256 |
-| 1–180 | Supplied 92,160-byte `zork1.dat` |
-| 181–255 | Reserved |
-| 256–319 | Save bank A: header, then VM snapshot |
-| 320–383 | Save bank B: header, then VM snapshot |
-| 384 onward | Unused |
+Create these files in a directory named `ZORK` at the filesystem root:
 
-The interpreter writes only sectors 256–383. Each snapshot includes dynamic
-memory, evaluation stack, call frames, locals, PC and random generator state.
-A 32-bit FNV-1a integrity hash is checked before restoring. The payload is written
-before its commit header; a corrupted latest snapshot falls back to the previous
-valid bank. SD card internal flash behavior can still affect power-loss recovery.
+| File | Size | Use |
+| --- | --- | --- |
+| `ZORK/ZORK1.DAT` | 92,160 bytes | User-supplied Zork I V3, release 88 / serial 840726 |
+| `ZORK/SAVEA.BIN` | 32,768 bytes | Snapshot bank A, initially all zeros |
+| `ZORK/SAVEB.BIN` | 32,768 bytes | Snapshot bank B, initially all zeros |
+
+The easiest preparation is to create a staging directory on your computer:
+
+```bash
+mkdir -p /tmp/zork-card-files
+python3 scripts/make_sd.py --directory /tmp/zork-card-files
+```
+
+Copy the resulting **`ZORK` directory** to your FAT card using your normal file
+manager, then safely eject it. You can also pass the root of an already mounted
+FAT card to `--directory` to create the files there directly. The script refuses
+an existing `ZORK` directory so it cannot replace saved games. To back up saves,
+copy both save files off the card while the board is powered off.
+
+For a fresh disk-image workflow instead:
+
+```bash
+python3 scripts/make_sd.py --output /tmp/zork-fat.img
+```
+
+This creates a 65 MiB disk image containing a 64 MiB FAT32 partition and blank
+saves. `--fat 16` selects an 8 MiB FAT16 volume; `--superfloppy` omits the MBR.
+The script refuses existing image paths and never writes a physical device.
+Writing a disk image to a physical card replaces its existing contents; normal
+file copying above preserves unrelated files. The former raw `zork-sd.img`
+format is unsupported by this firmware. Migration is not included.
+
+### Filesystem behavior and limits
+
+The firmware resolves each file's cluster chain at startup. Fragmented files
+work; contiguous allocation is not required. A compact sector map translates
+story-cache misses and snapshot operations to file data sectors. This is an
+original, restricted FAT implementation in `firmware/storage.c`: it does not
+create, resize, delete or rename files, or write FAT tables, FSInfo or directory
+entries. Keep both save files at exactly 32 KiB; don't edit them as text.
+File timestamps remain unchanged after saving.
+
+Each save includes dynamic memory, evaluation stack, call frames, locals, PC
+and random generator state. The inactive snapshot's payload is written before
+its commit header, and each SD write waits for the card to finish being busy.
+A 32-bit FNV-1a hash is checked before restoring. A corrupted newest snapshot
+falls back to the previous valid bank. Keeping allocation metadata unchanged
+reduces filesystem exposure, but card-internal flash behavior still limits
+power-loss guarantees. Save files remain private snapshots, not Quetzal files.
+
+Supported layouts: an unpartitioned FAT volume (superfloppy), or the first
+supported FAT16/FAT32 primary partition in an MBR. FAT12, exFAT, GPT and logical
+partitions in extended partitions are unsupported. Project paths use fixed 8.3
+names; other long-named files are ignored. Cluster sizes of 1–128 sectors are
+accepted. Each root/game directory chain is limited to 256 sectors (4,096
+entries, including long-filename records). File chains must match their file
+sizes, rounded to clusters. Malformed or overlapping project chains, wrong file
+sizes, missing files and read-only save files cause a startup error. Use a
+healthy filesystem; the firmware does not run a whole-volume filesystem check.
 
 The SPI driver supports SD v1/v2 initialization and SDSC byte addressing or
 SDHC/SDXC block addressing. Clock starts at 337.5 kHz, then rises to 3.375 MHz.
-The firmware displays an error if the card does not initialize or its image is
-missing. Reset after inserting a card; hot swapping is not supported.
-
-To create another clean image without overwriting an existing backup:
-
-```bash
-python3 scripts/make_sd.py --output /tmp/zork-fresh.img
-```
-
-The generator refuses to replace existing files. Re-imaging the card removes
-its saves. Do not write an image to a physical device until you have selected
-and checked the intended removable card.
+Reset after inserting a card. The firmware caches sector mappings until reset:
+**do not hot swap the card or modify it from another device while playing**.
+Power the board off before moving the card to your computer.
 
 ## Build and test
 
@@ -195,7 +237,8 @@ bash -n build.sh scripts/build_firmware.sh tests/run.sh program_flash.sh
 
 Tools: Gowin V1.9.11.03 Education at `/home/donh/IDE` (override `GOWIN_HOME`),
 RISC-V GCC/binutils supporting `rv32im/ilp32`, Python 3, native GCC, Icarus Verilog
-12 and Verilator 5 with G++/make. Current compiler/simulator installations were
+12 and Verilator 5 with G++/make. Filesystem tests also require `dosfstools`
+(`mkfs.fat`, `fsck.fat`) and `mtools` (`mcopy`, `mmd`). Current compiler/simulator installations were
 extracted under `/tmp/zork-tools`; these are temporary and may need restoring.
 Set `RISCV_PREFIX` to the RISC-V tool prefix, such as
 `/opt/riscv/bin/riscv64-unknown-elf-`. `IVERILOG`, `VVP`, `VERILATOR`,
@@ -208,10 +251,14 @@ timing. It rejects stale bitstream output. SHA-256 hashes are in `impl/SHA256SUM
 The SD generator is separate so builds cannot overwrite saves or card images.
 
 Tests cover native gameplay against Frotz, save/restore across processes,
-corrupted snapshots, SD write boundaries, all SPI/UART byte values, PS/2
+corrupted snapshots, interrupted saves at every sector boundary, FAT16/FAT32
+with MBR/superfloppy layouts, fragmented files, VFAT coexistence, independent
+mkfs.fat/mtools images, invalid media and unchanged metadata/unrelated files.
+They also cover all SPI/UART byte values, PS/2
 parity and timeout recovery, two full video frames and 100,000 TMDS symbols.
 A compiled RTL integration test runs the real firmware through the processor,
-SPI SDHC and SDSC card models, PS/2 and UART, then resets and restores from the retained card.
+SPI SDHC and SDSC card models with fragmented FAT16 files and an MBR FAT32
+SDHC fixture, PS/2 and UART, then resets and restores from the retained card.
 
 ## Design and limits
 
@@ -231,6 +278,7 @@ SPI SDHC and SDSC card models, PS/2 and UART, then resets and restores from the 
 Sources and references:
 [Z-machine standard](https://www.inform-fiction.org/zmachine/standards/z1point1/),
 [PicoRV32](https://github.com/YosysHQ/picorv32),
+[Microsoft FAT specification](https://www.scs.stanford.edu/~zyedidia/docs/_other/fat.pdf),
 [Sipeed board examples](https://github.com/sipeed/TangNano-20K-example),
 [Sipeed board documentation and schematics](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html).
 PicoRV32's ISC license is included in `third_party/PICORV32_COPYING`; the font

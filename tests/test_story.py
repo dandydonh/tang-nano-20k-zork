@@ -5,6 +5,7 @@ from pathlib import Path
 import struct
 import subprocess
 import tempfile
+from fat_helpers import FatImage
 root=Path(__file__).resolve().parents[1]
 def run(image,commands,with_status=False):
     env=dict(os.environ,ZORK_SD_IMAGE=str(image))
@@ -17,7 +18,7 @@ def run(image,commands,with_status=False):
     return p.stdout
 with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     image=Path(d)/'card.img'
-    subprocess.run(['python3',root/'scripts/make_sd.py','--output',image],check=True,capture_output=True)
+    subprocess.run(['python3',root/'scripts/make_sd.py','--output',image,'--fat','16','--size-mib','4'],check=True,capture_output=True)
     # Recall submits only on Enter; Down restores a draft. CSI parameters and
     # unsupported navigation keys must never leak into the game's parser.
     history=run(image,'look\n\x1b[A\n\x1bOA\nopen mailbox\x1b[A\x1b[B\n'
@@ -36,19 +37,22 @@ with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     assert 'A leaflet' in restored and 'North of House' in restored
     assert restored.count('Ok.')==2,restored
     second=image.read_bytes()
-    assert second[:256*512]==original[:256*512], 'story modified by SAVE'
-    assert second[384*512:]==original[384*512:], 'write outside save banks'
-    assert b'ZMV3' in second[256*512:256*512+4]
-    assert b'ZMV3' in second[320*512:320*512+4]
+    layout=FatImage(second)
+    layout.assert_only_saves_changed(original)
+    assert layout.file_bytes('ZORK1.DAT')==(root/'zork1.dat').read_bytes()
+    assert layout.file_bytes('SAVEA.BIN')[:4]==b'ZMV3'
+    assert layout.file_bytes('SAVEB.BIN')[:4]==b'ZMV3'
+    bank_a=layout.sectors('SAVEA.BIN');bank_b=layout.sectors('SAVEB.BIN')
     # Corrupt newest bank payload: restore must fall back to the previous snapshot.
-    bad=bytearray(second);bad[321*512+123]^=128;image.write_bytes(bad)
+    bad=bytearray(second);bad[bank_b[1]*512+123]^=128;image.write_bytes(bad)
     recovered=run(image,'restore\nlook\ninventory\n')
     assert recovered.count('West of House')==2 and 'A leaflet' in recovered,recovered
     # Corrupt both snapshots: report failure while preserving live game state.
-    bad[257*512+123]^=128;image.write_bytes(bad)
+    bad[bank_a[1]*512+123]^=128;image.write_bytes(bad)
     failed=run(image,'north\nrestore\nlook\n')
     assert 'Failed.' in failed and failed.count('North of House')==2,failed
-    image.write_bytes(bytes(bad[:256*512])+bytes(128*512)+bytes(bad[384*512:]))
+    for sector in bank_a+bank_b: bad[sector*512:(sector+1)*512]=bytes(512)
+    image.write_bytes(bad)
     commands='n\ne\nopen window\nenter window\nw\ntake lamp\ntake sword\nmove rug\nopen trapdoor\nturn on lamp\ndown\nlook\ninventory\nup\ne\nopen sack\ntake lunch\ntake bottle\nscore\n$verify\nquit\ny\n'
     walk,values=run(image,commands,with_status=True)
     for expected in ['Kitchen','Living Room','Cellar','A brass lantern','A sword','Your score is']:
