@@ -172,7 +172,10 @@ python3 scripts/serial_terminal.py /dev/ttyUSB1
 ```
 
 It uses Python's standard library and sets 115200 baud, 8N1, with no flow
-control or local echo. Press **Ctrl+]** to disconnect. Your desktop terminal
+control or local echo. Press **Ctrl+]** or **Ctrl+A, then X** to disconnect.
+This is a separate serial client from Minicom; both exit shortcuts work in
+the launcher. Press Ctrl+A twice to send a literal Ctrl+A to the board.
+Your desktop terminal
 handles the display and scrollback; the launcher forwards the FPGA's ANSI size
 queries and the terminal's replies unchanged. Resizing sends no screen clear.
 Firmware applies the new dimensions at the next command or MORE pause.

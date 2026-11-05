@@ -125,6 +125,30 @@ class SerialTerminalTest(unittest.TestCase):
         self.assertEqual(self.process.wait(timeout=2), 128 + signal.SIGTERM)
         self.assert_restored()
 
+    def test_minicom_exit_across_reads(self):
+        os.write(self.console_master, b'look\r\x01')
+        self.assertEqual(receive(self.serial_master, 5), b'look\r')
+        self.assertEqual(receive(self.serial_master, timeout=.05), b'')
+        self.assertIsNone(self.process.poll())
+        # Serial display/query traffic must continue while waiting for X.
+        os.write(self.serial_master, b'\x1b[6n')
+        self.assertEqual(receive(self.console_master, 4), b'\x1b[6n')
+        os.write(self.console_master, b'xnot-sent')
+        self.assertEqual(self.process.wait(timeout=2), 0)
+        self.assertEqual(receive(self.serial_master, timeout=.05), b'')
+        self.assert_restored()
+
+    def test_minicom_exit_uppercase_in_one_read(self):
+        os.write(self.console_master, b'lo\x01Xnot-sent')
+        self.assertEqual(self.process.wait(timeout=2), 0)
+        self.assertEqual(receive(self.serial_master, timeout=.05), b'lo')
+        self.assert_restored()
+
+    def test_other_control_a_sequences_are_forwarded(self):
+        os.write(self.console_master, b'\x01q\x01\x01look\r')
+        self.assertEqual(receive(self.serial_master, 8), b'\x01q\x01look\r')
+        self.assertIsNone(self.process.poll())
+
     def test_disconnect_restores_terminal(self):
         os.close(self.serial_master)
         self.serial_master = None

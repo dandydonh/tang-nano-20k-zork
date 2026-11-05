@@ -11,6 +11,7 @@ import termios
 import tty
 
 EXIT_KEY = b'\x1d'  # Ctrl+]
+COMMAND_KEY = 0x01  # Ctrl+A, followed by X to exit (as in Minicom)
 
 
 def write_all(fd, data):
@@ -49,6 +50,7 @@ def connect(device, baud, console_in=0, console_out=1):
         termios.tcsetattr(serial_fd, termios.TCSANOW, attrs)
         console_state = termios.tcgetattr(console_in)
         tty.setraw(console_in, termios.TCSANOW)
+        command_pending = False
         while True:
             ready, _, _ = select.select([console_in, serial_fd], [], [])
             for fd in ready:
@@ -61,9 +63,27 @@ def connect(device, baud, console_in=0, console_out=1):
                 if fd == serial_fd:
                     write_all(console_out, data)
                 else:
-                    before, exit_key, _ = data.partition(EXIT_KEY)
-                    write_all(serial_fd, before)
-                    if exit_key:
+                    outgoing = bytearray()
+                    exiting = False
+                    for key in data:
+                        if key == EXIT_KEY[0]:
+                            exiting = True
+                            break
+                        if command_pending:
+                            command_pending = False
+                            if key in (ord('x'), ord('X')):
+                                exiting = True
+                                break
+                            outgoing.append(COMMAND_KEY)
+                            # Ctrl+A twice sends one literal Ctrl+A.
+                            if key == COMMAND_KEY:
+                                continue
+                        elif key == COMMAND_KEY:
+                            command_pending = True
+                            continue
+                        outgoing.append(key)
+                    write_all(serial_fd, outgoing)
+                    if exiting:
                         return
     finally:
         try:
@@ -101,7 +121,8 @@ def main():
     signal.signal(signal.SIGHUP, terminate)
     # SIGWINCH deliberately has no display handler: the desktop terminal owns
     # its existing text and scrollback. The FPGA detects size at its next probe.
-    print(f'Connecting to {args.device} at {args.baud}. Exit with Ctrl+].',
+    print(f'Connecting to {args.device} at {args.baud}. '
+          'Exit with Ctrl+] or Ctrl+A then X.',
           file=sys.stderr, flush=True)
     try:
         connect(args.device, args.baud)
