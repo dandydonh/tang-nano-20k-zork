@@ -18,6 +18,7 @@ gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
   -fno-builtin -ffunction-sections -fdata-sections -Ifirmware \
   tests/paging_tb.c firmware/output.c -Wl,--gc-sections -o impl/paging-test
 impl/paging-test
+python3 tests/test_dynamic_terminal.py
 python3 tests/test_paging.py
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -Ifirmware \
   firmware/screen.c tests/v5_screen_tb.c -o impl/v5-screen-test
@@ -148,3 +149,5 @@ PYV5
 
 python3 tests/test_v5_display.py impl/soc-v5.log
 python3 tests/test_paging_cpu.py
+
+python3 tests/test_dynamic_cpu.py

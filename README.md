@@ -12,7 +12,8 @@ Hitchhiker's Guide (release 31) and Beyond Zork (release 57). This change requir
 a new bitstream build; the published v0.4.0 release below supports V3 only.
 V5 games draw their own status, menus and split windows across a fixed
 79-column by 32-row screen. Use a serial terminal at least 80 columns by 32 rows.
-V3 retains its existing header and terminal layout. See compatibility limits below.
+V3 keeps its header and adapts serial text to the detected terminal size.
+See compatibility limits below.
 
 ## Clone this project
 
@@ -149,18 +150,23 @@ row 2 before the startup banner. The fixed first row shows
 `STORY.DAT - Tang Nano 20K` on the left and score/moves (or a V3 clock) at the
 right edge of the terminal, with one blank column of margin. The project title appears only in
 this header. Values refresh before each command while the transcript scrolls
-below it. Story text wraps at word boundaries within **79 columns** on both
-serial and HDMI. Firmware sends explicit CRLF line breaks, so long paragraphs
-remain visible even when terminal autowrap is disabled. Wider terminals retain
-this transcript width while the status counters stay at the terminal's right edge.
-Long output pauses at `[MORE]` before the current page scrolls away. Press
-**Space** or **Enter** on the serial or PS/2 keyboard to continue; that key is
-consumed by the pause. At startup the firmware requests an ANSI cursor report
-to detect terminal height, capped at the HDMI display's 32 rows. If no valid
-reply arrives, it uses a conservative 18-row page. The status/upper window and
-one prompt row are excluded from each page. Set the terminal size before reset;
-resize detection during play is not implemented. V5 still requires an 80x32
-or larger serial terminal for its fixed window coordinates.
+below it. V3 story text wraps at word boundaries using the serial terminal's
+reported width, leaving one column free. HDMI wraps independently at 79 columns.
+Both outputs contain the same text with different line breaks. Explicit CRLF
+line breaks keep serial output readable with terminal autowrap disabled.
+
+Long output pauses at `[MORE]`. Press **Space** or **Enter** on the serial or
+PS/2 keyboard to continue; that key is consumed by the pause. Firmware requests
+an ANSI cursor report at startup, before each line command, and after each
+pause. V3 paging uses the reported serial height, reserving the status row and
+one prompt row; it is no longer capped at HDMI's 32 rows. HDMI can scroll
+between serial page pauses. A 149x35 terminal uses 148 text columns and 33
+completed lines per page. Resizing takes effect at the next command or pause;
+already printed text is not reflowed. The probe preserves the input cursor,
+typeahead and arrow keys, and filters delayed size replies from game input.
+If the terminal does not reply, firmware retains its last detected size;
+the startup fallback is 80 columns and 18 rows. V5 retains its fixed 79x32
+window coordinates and requires an 80x32 or larger serial terminal.
 Some stories reuse the counter labeled `Moves` for another purpose. Planetfall
 release 37 uses it for Galactic Standard Time: it starts around 4500 and advances
 by different amounts for different actions (`look` adds 9, `inventory` adds 18).
@@ -415,7 +421,7 @@ and expansion; the supplied private V5 stories are not redistributed.
 - HDMI carries DVI-compatible video, no audio. 80 columns by 32 rows, including
   a fixed inverse status row for V3; V5 controls its own status/windows. Glyphs are 8x16 pixels,
   doubled horizontally; console occupies 1280x512 centered in 720p.
-- Explicit 79-column word wrapping, scrolling, `[MORE]` paging and basic line
+- Independent serial/79-column HDMI word wrapping, scrolling, `[MORE]` paging and basic line
   editing. No HDMI scrollback. One column remains free on an 80-column display.
 - V3/V5 implementation with bounded memory, not a general Z-machine
   conformance claim. No printer/transcript stream or sound support.

@@ -16,9 +16,10 @@ if not story.exists():
 with tempfile.TemporaryDirectory(prefix='zork-paging-') as directory:
     card=Path(directory)/'card.img'
     card.write_bytes(make_image([('ZORK3.DAT',story.read_bytes()),('SAVES.BIN',bytes(POOL_SIZE))],16,8,False))
-    def run(rows=None,keys=''):
+    def run(rows=None,keys='',columns=None):
         env=dict(os.environ,ZORK_SD_IMAGE=str(card))
         if rows is not None:env['ZORK_PAGE_ROWS']=str(rows)
+        if columns is not None:env['ZORK_TERM_COLUMNS']=str(columns)
         return subprocess.run([ROOT/'impl/zork-host'],input=keys,text=True,capture_output=True,env=env,check=True,timeout=30).stdout
     original=run()
     stopped=run(18)
@@ -32,7 +33,14 @@ with tempfile.TemporaryDirectory(prefix='zork-paging-') as directory:
         paged=run(rows,' '*pauses)
         assert paged.count('[MORE]')==pauses,(rows,paged)
         assert paged.replace('[MORE]'+erase,'')==original,rows
+    for columns in (80,100,149,180):
+        dynamic=run(35,columns=columns)
+        assert '[MORE]' not in dynamic
+        assert dynamic.split()==original.split(),columns
+        longest=max(map(len,dynamic.splitlines()))
+        assert longest<=columns-1,(columns,longest)
+        if columns>80:assert longest>79,(columns,longest)
     # The space acknowledging the short-terminal page cannot leak into LOOK.
     paged=run(18,' look\n')
     assert paged.replace('[MORE]'+erase,'')==run(keys='look\n')
-print('PASS exact Zork III: pause before 18-row overflow, all text retained at 4/18/24/32 rows, acknowledgement separate from LOOK')
+print('PASS exact Zork III: pause before 18-row overflow, all text retained at 4/18/24/32 rows, dynamic 80/100/149/180-column text at 35 rows, acknowledgement separate from LOOK')

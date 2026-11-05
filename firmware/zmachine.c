@@ -238,7 +238,7 @@ static void erase_input(unsigned len) {
   while(len--){ui_put(8);ui_put(' ');ui_put(8);}
 }
 static void read_line(unsigned text,unsigned parse) {
-  if(version==3)status();unsigned len=0,max=rb(text),escape=0,draft_length=0,recalled=0;
+  console_input_begin();if(version==3)status();unsigned len=0,max=rb(text),escape=0,draft_length=0,recalled=0;
   unsigned offset=version==5?2:1;
   if(version==5){max++;len=rb(text+1);if(len>=max)fatal("input preload length");}
   char draft[256];

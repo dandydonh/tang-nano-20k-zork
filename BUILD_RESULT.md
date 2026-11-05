@@ -1,6 +1,6 @@
 # SDRAM V3/V5 loader: build and validation
 
-Updated 2026-11-04 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
+Updated 2026-11-05 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
 
 This build loads the selected V3 or V5 story into integrated SDRAM, supports the full
 16-bit writable-memory boundary, accepts legacy trailing file padding and uses
@@ -9,9 +9,61 @@ with five per game by default and a compatible lossless pool expansion. Up to 20
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
 
-## MORE paging build, 2026-11-04
+## Dynamic V3 serial layout, 2026-11-05
 
-Current firmware pauses long V3 and V5 lower-window output at `[MORE]`.
+V3 serial output now wraps at the detected terminal width minus one column,
+independently of HDMI's 79-column transcript. Paging uses the serial height,
+reserving one status row and one prompt row, without the previous 32-row cap.
+Cursor-preserving ANSI size queries run at startup, before line commands and
+after MORE acknowledgements. Successful V3 queries refresh the scrolling area;
+already printed text is not reflowed. No-response fallback is 80x18; subsequent
+failed queries retain the last detected size. Typeahead, arrows, CRLF and late
+size replies are handled without becoming unintended commands. V5 retains its
+fixed 79x32 windows and needs a serial terminal at least 80x32.
+
+The 3200-byte save-header sector index moves to unused SDRAM at 0x30080000,
+after the undo bank. Discovery fills the table before it is read; snapshot and
+SD layouts are unchanged. The reserved 8 KiB C stack is retained.
+
+Final `./build.sh` passes synthesis, placement/routing and setup/hold checks.
+Resources remain 3118 logic and 37 BSRAM. Firmware text/data/BSS:
+**33548/28/21516 = 55092 bytes**, 2252 bytes before the stack boundary.
+Bitstream SHA-256:
+`93dfa647e0a920ffa000e0cff692dd89b39af925742c228357b60d810b268615`.
+Firmware SHA-256:
+`03b702896b680c4805d441a7c8122af5904087020968a2d9457c31e55c0674a0`.
+Build log: `impl/dynamic-final-build.log`.
+
+Board-backend tests render 20/60/80/100/149/180/300-column UART output with
+terminal autowrap off and on, preserve HDMI's margin, and erase wrapped input
+at each width. They cover live 35-to-18-row paging, retained sizes after a
+failed query, interleaved arrows/typeahead, delayed replies, bounded malformed
+replies and V5 page limits. Exact private Zork III preserves the complete
+introduction at 80/100/149/180 columns in a 35-row terminal. The original V3/V5
+native gameplay, storage, save/restore and peripheral/video checks pass.
+The final binary's actual-CPU resize fixture passes 149x35 -> live 100x18 ->
+reset at 100x18: nine size replies, two MORE pauses, complete text and three
+LOOK commands. Logs: `impl/dynamic-cpu.log`, `impl/dynamic-cpu-tests.log`.
+All eight broader first-build processor regressions and serial/V5 rendering
+checks pass, including maximum-memory V3, selected saves, and V5 at 377562252
+cycles / 1870 reads / 145 writes. Final malformed-reply/long-word hardening is
+separately checked with the final backend/native tests and final CPU resize
+fixture. The guard build's isolated twelve-paragraph paging/save/reset CPU
+fixture also passes. See `impl/dynamic-tests.log`,
+`impl/dynamic-final-paging-tests.log` and PROGRESS.md for the build distinction.
+
+This build was programmed at the user's explicit request with unchanged
+`./program_flash.sh` and approved direct USB access: GW2AR-18C ID 0x0000081B,
+flash 0x0B4017, cable 4/channel 0, operation 9. The programmer reports
+**SPI program and verify success**, exit 0, 30.46 seconds. Persistent flash
+now contains 93dfa647...268615, superseding 76d41088...2c07c.
+Programming/readback is verified. The user reports improved serial appearance.
+Physical resize retention, MORE acknowledgement, HDMI and power-cycle behavior
+remain to be checked for this build. No physical SD data was changed.
+
+## MORE paging build, 2026-11-04 (previous programmed build)
+
+That firmware pauses long V3 and V5 lower-window output at `[MORE]`.
 Space/Enter through UART or PS/2 resumes output without submitting a game
 command. An initial ANSI cursor report detects terminal height (maximum 32);
 the bounded no-response fallback is 18 rows. Status/upper rows and one prompt

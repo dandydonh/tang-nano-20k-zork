@@ -14,7 +14,7 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
     frames = status.findall(stream)
     assert len(frames) == 10, (logfile, frames)
     clean = status.sub('', stream).replace(init, '')
-    clean = clean.replace('\x1b[999;999H\x1b[6n\x1b[2;1H','')
+    clean = clean.replace('\x1b7\x1b[999;999H\x1b[6n\x1b8','')
     clean = re.sub(r'\x1b\[0m\[MORE\]\x08{6}(?:(?:\x1b\[[07]m)?.){6}\x08{6}','',clean)
     assert title not in clean, 'duplicate standalone startup title'
     assert '\x1b' not in clean, 'unexpected/incomplete serial control sequence'
@@ -41,9 +41,8 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
         data = stream[stream.index(init):]
         pos = 0
         while pos < len(data):
-            query='\x1b[999;999H\x1b[6n\x1b[2;1H'
+            query='\x1b7\x1b[999;999H\x1b[6n\x1b8'
             if data.startswith(query,pos):
-                row,col=1,0
                 pos+=len(query)
                 continue
             if data.startswith('\x1b7', pos):

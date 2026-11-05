@@ -18,13 +18,24 @@ def render(data):
     row=col=top=0
     bottom=31
     style=False
+    saved=None
     pos=0
     while pos<len(data):
-        query='\x1b[999;999H\x1b[6n\x1b[2;1H'
+        query='\x1b7\x1b[999;999H\x1b[6n\x1b8'
         if data.startswith(query,pos):
-            row,col=1,0
             pos+=len(query)
             continue
+        if data.startswith('\x1b7',pos):
+            saved=(row,col,style);pos+=2;continue
+        if data.startswith('\x1b8',pos):
+            assert saved is not None
+            row,col,style=saved;pos+=2;continue
+        # The CPU fixture resets/finishes shortly after a prompt, which can
+        # interrupt a size probe. A new ESC cancels the unfinished CSI, as on
+        # a terminal; an unfinished final CSI has no visible effect.
+        interrupted=re.match(r'\x1b\[[0-9;]*(?=\x1b|$)',data[pos:])
+        if interrupted:
+            pos+=len(interrupted[0]);continue
         control=re.match(r'\x1b\[([0-9;]*)([mHKrJ])',data[pos:])
         if control:
             args,cmd=control.groups()

@@ -22,7 +22,9 @@ module soc_tb;
  integer serial_newlines=0;
  string terminal_init="\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H";
  integer init_position=0,terminal_initializations=0;
- integer status_updates=0;
+ integer status_updates=0,status_position=0;
+ string status_prefix="\0337\033[1;1H";
+ bit status_active=0;
  integer slot_menus=0,slot_position=0,confirmations=0,confirm_position=0;
  string slot_prompt="Slot number [Enter=1, 0=cancel]: ";
  string confirm_prompt="? [y/N]: ";
@@ -57,7 +59,11 @@ module soc_tb;
          confirm_position=confirm_position+1;
          if(confirm_position==confirm_prompt.len())begin confirmations=confirmations+1;confirm_position=0;end
        end else confirm_position=dut.wdata[7:0]==confirm_prompt[0]?1:0;
-       if(previous_serial==27&&dut.wdata[7:0]=="8")status_updates=status_updates+1;
+       if(dut.wdata[7:0]==status_prefix[status_position])begin
+         status_position=status_position+1;
+         if(status_position==status_prefix.len())begin status_active=1;status_position=0;end
+       end else status_position=dut.wdata[7:0]==status_prefix[0]?1:0;
+       if(status_active&&previous_serial==27&&dut.wdata[7:0]=="8")begin status_updates=status_updates+1;status_active=0;end
        if(dut.wdata[7:0]==10)begin
          if(previous_serial!=13)$fatal(1,"serial LF without CR causes terminal skew");
          serial_newlines=serial_newlines+1;

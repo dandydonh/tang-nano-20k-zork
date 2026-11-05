@@ -20,7 +20,7 @@ def render(data,width=80,wrap=False):
     row,col,pos=1,0,0
     clipped=0
     while pos<len(data):
-        query='\x1b[999;999H\x1b[6n\x1b[2;1H'
+        query='\x1b7\x1b[999;999H\x1b[6n\x1b8'
         if data.startswith(query,pos):
             pos+=len(query);continue
         control=re.match(r'\x1b\[(\d+)([ACm])',data[pos:])

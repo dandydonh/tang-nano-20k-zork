@@ -5,9 +5,12 @@
 #include "screen.h"
 static FILE *disk;
 static long cut_after=-1,writes;
-void platform_init(void){const char *p=getenv("ZORK_SD_IMAGE");disk=fopen(p?p:"assets/zork-fat.img","r+b");if(!disk){perror("SD image");exit(1);}const char *cut=getenv("ZORK_CUT_AFTER_WRITES");if(cut)cut_after=strtol(cut,NULL,10);setbuf(stdout,NULL);const char *rows=getenv("ZORK_PAGE_ROWS");if(rows)console_page_height(strtoul(rows,NULL,10));}
-void console_emit(int c){putchar(c);}
-int console_previous_line(void){fputs("\033[1A\033[78C",stdout);return 1;}
+void platform_init(void){const char *p=getenv("ZORK_SD_IMAGE");disk=fopen(p?p:"assets/zork-fat.img","r+b");if(!disk){perror("SD image");exit(1);}const char *cut=getenv("ZORK_CUT_AFTER_WRITES");if(cut)cut_after=strtol(cut,NULL,10);setbuf(stdout,NULL);const char *cols=getenv("ZORK_TERM_COLUMNS");if(cols)console_width(strtoul(cols,NULL,10)-1);const char *rows=getenv("ZORK_PAGE_ROWS");if(rows)console_page_height(strtoul(rows,NULL,10));}
+void console_serial_emit(int c){putchar(c);}
+void console_emit(int c){(void)c;}
+int console_previous_line(void){return 1;}
+void console_serial_previous(unsigned width){printf("\033[1A\033[%uC",width-1);}
+void console_input_begin(void){}
 int console_get(void){screen_flush();console_story_flush();console_page_reset();int c=getchar();if(c==EOF)exit(0);return c;}
 void console_more(void){fputs("[MORE]",stdout);int c;do{c=getchar();if(c==EOF)exit(0);}while(c!=' '&&c!='\r'&&c!='\n');fputs("\b\b\b\b\b\b      \b\b\b\b\b\b",stdout);}
 static char status_line[81];

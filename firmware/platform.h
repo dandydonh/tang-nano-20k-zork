@@ -4,6 +4,11 @@
 enum { KEY_UP=256, KEY_DOWN=257 };
 #define CONSOLE_COLUMNS 79U
 void console_reset(void);
+/* Usable serial columns, excluding the physical terminal's right margin. */
+void console_width(unsigned columns);
+void console_input_begin(void);
+void console_serial_emit(int c);
+void console_serial_previous(unsigned width);
 void console_put(int c);
 void console_story_put(int c);
 void console_story_flush(void);
@@ -13,8 +18,8 @@ void console_page_height(unsigned rows);
 void console_page_reset(void);
 void console_page(unsigned top);
 void console_more(void);
-/* Platform backend: emit one unwrapped character or move to the previous
- * transcript line's last used column. Status output bypasses the formatter. */
+/* HDMI backend: emit one unwrapped character or move to the previous
+ * transcript line's last used column. Serial has a separate sink above. */
 void console_emit(int c);
 int console_previous_line(void);
 int console_get(void);

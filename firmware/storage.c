@@ -8,7 +8,13 @@
 #define DIR_SECTOR_LIMIT 256U
 #define DIR_EXTENTS 32U
 #define STORY_LIMIT STORAGE_STORY_LIMIT
-static uint32_t sector_map[MAP_SECTORS], save_headers[STORAGE_SAVE_SLOTS*2*STORAGE_GAME_SLOTS];
+static uint32_t sector_map[MAP_SECTORS];
+#ifdef HOST
+static uint32_t save_headers[STORAGE_SAVE_SLOTS*2*STORAGE_GAME_SLOTS];
+#else
+/* After the 0x30060000..0x3007ffff undo bank; populated before use. */
+#define save_headers ((volatile uint32_t *)0x30080000U)
+#endif
 static uint8_t buf[512], fat_buf[512], story_id[STORAGE_ID_BYTES];
 static uint32_t fat_cached_sector, fat_start, data_start, cluster_count, root_start, root_sectors;
 static uint32_t story_bytes;
