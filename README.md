@@ -63,7 +63,7 @@ their own licenses; see [third_party/README.md](third_party/README.md).
 
 With several stories on the card, startup shows a numbered selection menu:
 
-[![Serial startup menu listing V3/V5 stories and prompting for a story number](boot-up.png)](boot-up.png)
+[![Serial startup menu listing V3/V5 stories and prompting for a story number](story-selection-menu.png)](story-selection-menu.png)
 
 Selecting `19` starts Zork III. The serial display shows the selected story,
 score and moves above the introduction, room description and command prompt:
@@ -80,7 +80,7 @@ score and moves above the introduction, room description and command prompt:
   </tr>
 </table>
 
-Open the [story-selection menu](boot-up.png) or [Zork III play example](bootup2.png)
+Open the [story-selection menu](story-selection-menu.png) or [Zork III play example](bootup2.png)
 at full size. Scroll horizontally above to view the play example at its original
 size.
 
