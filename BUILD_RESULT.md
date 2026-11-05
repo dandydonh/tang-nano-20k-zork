@@ -9,6 +9,26 @@ with five per game by default and a compatible lossless pool expansion. Up to 20
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
 
+## v0.5.0 prerelease package
+
+The [v0.5.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.5.0) packages the dynamic V3/V5 build documented
+below. Its `zork.fs` is the same 93dfa647...268615 bitstream that passed flash
+programming/readback; no new synthesis or board programming is needed to
+publish this release.
+
+| Asset | Bytes | Purpose |
+| --- | ---: | --- |
+| `zork.fs` | 7,262,008 | Tang Nano 20K FPGA bitstream |
+| `SAVES.BIN` | 26,214,400 | All-zero 25 MiB pool: 20 story identities, 5 selectable positions each |
+| `SHA256SUMS` | 150 | SHA-256 checksums for the two assets |
+
+The blank pool is generated with `scripts/make_sd.py --prepare-saves` and
+verified to contain only zero bytes. Its SHA-256 is
+`394c345f0b0c63ee652627a62eed069244d35c4d5134e4f07d4eabb51afda47e`.
+Use it for fresh saves only; preserve or expand an existing pool to retain
+saved games. No game data or SD image is distributed. Tag `v0.5.0` identifies
+the matching source, including the serial launcher and current usage examples.
+
 ## Dynamic V3 serial layout, 2026-11-05
 
 V3 serial output now wraps at the detected terminal width minus one column,

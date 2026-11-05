@@ -7,9 +7,9 @@ Compatible `.dat` files can be copied onto a FAT16/FAT32 microSD card.
 Story data is not included. The supplied local Zork I file is used for regression
 validation; this is a bounded interpreter, not universal story compatibility.
 
-Current source adds V5 support, including the supplied V5 editions of
-Hitchhiker's Guide (release 31) and Beyond Zork (release 57). This change requires
-a new bitstream build; the published v0.4.0 release below supports V3 only.
+The v0.5.0 prerelease supports V3 and V5 stories. Tested V5 editions include
+Hitchhiker's Guide (release 31) and Beyond Zork (release 57); supply your own
+story files. It also includes MORE paging and terminal-aware V3 serial output.
 V5 games draw their own status, menus and split windows across a fixed
 79-column by 32-row screen. Use a serial terminal at least 80 columns by 32 rows.
 V3 keeps its header and adapts serial text to the detected terminal size.
@@ -25,34 +25,47 @@ cd tang-nano-20k-zork
 See the build instructions below for required tools,
 FPGA programming, and SD card preparation.
 
-Zork I story data is not included.
+## Prebuilt v0.5.0 prerelease
 
+Download the [v0.5.0 V3/V5 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.5.0):
 
-Download the prebuilt **selectable-save and output-stream bitstream** from the
-[v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0).
-Download `zork.fs`, the blank `SAVES.BIN`, and `SHA256SUMS` together and verify with
-`sha256sum -c SHA256SUMS`. Place the bitstream at `impl/pnr/zork.fs` to use
-`./program_flash.sh`, after checking its device, cable index and channel.
-The attached `SAVES.BIN` is a blank 25 MiB pool for fresh saves. With the board
-off, copy it to `/ZORK/SAVES.BIN` only if no wanted saves exist there. Expand a
-backup of an existing pool using the instructions below to retain those saves.
-This prerelease includes selectable save slots and corrected screen/memory
-output streams. Expanded pools require this firmware or newer.
+- [zork.fs](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.5.0/zork.fs): FPGA bitstream for the Tang Nano 20K, GW2AR-18C.
+- [SAVES.BIN](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.5.0/SAVES.BIN): blank **25 MiB** save pool, with five selectable positions for each of twenty story identities.
+- [SHA256SUMS](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.5.0/SHA256SUMS): checksums for both files.
 
-Stories load from SD into integrated SDRAM at startup; firmware is embedded in
-the FPGA bitstream. Adding a compatible **V3** story requires file copying and
-reset. **V5 is not supported** by this release. Up to 20 DAT entries and 20 saved
-story identities are supported, with five save positions per game by default in
-a 25 MiB pool. Existing 2/5 MiB pools retain one position per game; see
-preparation and upgrade instructions below. Previous release pages and assets
-and their tags have been removed; v0.4.0 is the only current release/tag.
+Download all three into the same directory and verify:
 
-This exact v0.4.0 bitstream has passed persistent flash programming/readback
-verification. All seven processor simulations and the full software/RTL suite
-pass. Physical stream behavior, selectable saves, power-cycle persistence,
-HDMI and PS/2 still need observation for this build. Earlier-build hardware
-observations do not establish those results for this prerelease.
-See [build and validation results](BUILD_RESULT.md).
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Place `zork.fs` at `impl/pnr/zork.fs` to use `./program_flash.sh`, after checking
+its device, cable index and channel. Firmware is embedded in the bitstream;
+stories load from a FAT16/FAT32 microSD card into integrated SDRAM at startup.
+Adding a compatible V3 or V5 `.DAT` file to `/ZORK` requires file copying and
+reset. Up to twenty stories are listed alphabetically for selection.
+
+**The supplied SAVES.BIN is empty.** With the board off, copy it to
+`/ZORK/SAVES.BIN` only when preparing fresh saves. Back up an existing pool and
+use the [save expansion instructions](#one-time-save-preparation) to retain
+wanted saves. Existing 2/5 MiB pools retain one position per story. V3 snapshots
+remain compatible; V5 uses its own snapshot format within the same pool.
+No story files or SD images are included in the release.
+
+This build adds V5 support, MORE paging, independent serial/HDMI wrapping and
+terminal-size checks before commands and after pauses. For serial resizing,
+use [the Python launcher](#keyboard-through-usb-serial); Minicom 2.10 clears its
+display when resized. V5 retains its fixed 79x32 layout and needs a terminal
+at least 80 columns by 32 rows. The [previous v0.4.0 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0)
+remains available for V3 only. Tag `v0.5.0` identifies the source for this build.
+
+Synthesis, place/route and timing checks pass. All eight broader processor
+regressions pass, and the final firmware passes the actual-CPU resize fixture;
+see [build and validation results](BUILD_RESULT.md) for the build distinction.
+This exact bitstream passed persistent flash programming/readback. The supplied
+screenshots show physical serial selection and Zork III output. Physical V5
+play, launcher resize retention, HDMI/PS2, SD saves and power-cycle behavior for
+this build still need observation.
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
 Zork story data (`zork1.dat` and copies in SD images) is copyrighted third-party
