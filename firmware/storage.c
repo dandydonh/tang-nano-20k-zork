@@ -1,4 +1,4 @@
-/* FAT16/FAT32 V3 story discovery. Only the selected save-slot data is writable.
+/* FAT16/FAT32 V3/V5 story discovery. Only the selected save-slot data is writable.
  * No filesystem metadata writes, allocation or hot swapping. */
 #include "platform.h"
 #include "storage.h"
@@ -16,7 +16,7 @@ static uint32_t story_first_sector,story_last_sector;
 static unsigned sectors_per_cluster, fat32, ready, saves_ready, story_sectors, story_count, chosen, save_slots;
 static unsigned game_slots, save_owner, mapped_game_slot;
 struct entry { uint32_t cluster, size; unsigned attr; };
-struct candidate { struct entry file; char name[13]; const char *error; };
+struct candidate { struct entry file; char name[13]; uint8_t version; const char *error; };
 static struct candidate stories[STORY_LIMIT];
 static struct entry pool;
 static struct { uint32_t start, size; } directories[DIR_EXTENTS];
@@ -173,13 +173,14 @@ static const char *validate_story(struct entry *e) {
   if(e->size<64)return "size must be at least 64 bytes";
   if(e->size>V3_FILE_MAX)return "padded file exceeds 1 MiB";
   if(!cluster_valid(e->cluster)||!sd_read_sector(cluster_sector(e->cluster),buf))return "story read failed";
-  if(buf[0]!=3)return "requires Z-machine V3";
-  unsigned dynamic=be16(buf+14);uint32_t length=2U*be16(buf+26);if(!length)length=e->size;
-  if(length<64||length>e->size||length>V3_STORY_MAX)return "invalid declared length (maximum 128 KiB)";
+  if(buf[0]!=3&&buf[0]!=5)return "requires Z-machine V3 or V5";
+  unsigned scale=buf[0]==5?4:2;
+  unsigned dynamic=be16(buf+14);uint32_t length=scale*be16(buf+26);if(!length)length=e->size;
+  if(length<64||length>e->size||length>(buf[0]==5?Z_STORY_MAX:V3_STORY_MAX))return buf[0]==5?"invalid declared length (maximum 256 KiB)":"invalid declared length (maximum 128 KiB)";
   if(dynamic<64||dynamic>length||be16(buf+4)<dynamic||be16(buf+4)>=length||
-      be16(buf+6)<64||be16(buf+6)>=length||be16(buf+10)<64||be16(buf+10)+62U>dynamic||
+      be16(buf+6)<64||be16(buf+6)>=length||be16(buf+10)<64||be16(buf+10)+(buf[0]==5?126U:62U)>dynamic||
       be16(buf+12)<64||be16(buf+12)+480U>dynamic||be16(buf+8)<64||be16(buf+8)+4U>length||
-      be16(buf+24)<64||be16(buf+24)+192U>length)return "invalid V3 memory layout";
+      be16(buf+24)<64||be16(buf+24)+192U>length)return "invalid story memory layout";
   return 0;
 }
 static int name_after(const char *a,const char *b) {
@@ -201,14 +202,15 @@ static int select_story(void) {
   }
   unsigned good=0,last=0;
   for(unsigned i=0;i<story_count;i++) {
-    stories[i].error=validate_story(&stories[i].file);
+    stories[i].error=validate_story(&stories[i].file);stories[i].version=buf[0];
     if(!stories[i].error){good++;last=i;}
     else{say("Skipping ");say(stories[i].name);say(": ");say(stories[i].error);say("\n");}
   }
-  if(!good){say("No compatible V3 DAT stories in /ZORK.\n");return 0;}
+  if(!good){say("No compatible V3/V5 DAT stories in /ZORK.\n");return 0;}
   if(good==1)chosen=last;
   else {
-    say("V3 stories:\n");
+    unsigned has_v5=0;for(unsigned j=0;j<story_count;j++)if(!stories[j].error&&stories[j].version==5)has_v5=1;
+    say(has_v5?"V3/V5 stories:\n":"V3 stories:\n");
     for(unsigned i=0;i<story_count;i++)if(!stories[i].error){say_number(i+1);say(". ");say(stories[i].name);say("\n");}
     for(;;) {
       say("Select story number: ");unsigned choice=0,escape=0,length=0,invalid=0;
@@ -229,13 +231,14 @@ static int select_story(void) {
   story_sectors=(e->size+511)/512;
   if(!map_file(e,0,0)){say("Invalid story allocation chain.\n");return 0;}
   if(!sd_read_sector(sector_map[0],buf))return 0;
-  story_bytes=2U*be16(buf+26);if(!story_bytes)story_bytes=e->size;
+  story_bytes=(buf[0]==5?4U:2U)*be16(buf+26);if(!story_bytes)story_bytes=e->size;
   /* Standard release/serial/checksum identity, plus logical and dynamic sizes.
    * Renaming a story preserves its saves; a different release gets a new slot. */
   for(unsigned i=0;i<2;i++)story_id[i]=buf[2+i];
   for(unsigned i=0;i<6;i++)story_id[2+i]=buf[18+i];
   story_id[8]=buf[28];story_id[9]=buf[29];
   for(unsigned i=0;i<4;i++)story_id[10+i]=story_bytes>>(8*i);
+  if(buf[0]==5)story_id[13]=5; /* Version domain in unused high size byte. */
   story_id[14]=buf[14];story_id[15]=buf[15];
   say("Starting ");say(stories[chosen].name);say("\n");return 1;
 }

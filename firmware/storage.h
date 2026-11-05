@@ -3,6 +3,7 @@
 #include <stdint.h>
 #define V3_DYNAMIC_MAX 65535U
 #define V3_STORY_MAX 131072U
+#define Z_STORY_MAX 262144U
 /* Bound physical allocation traversal, including trailing legacy padding. */
 #define V3_FILE_MAX 1048576U
 #define STORAGE_SAVE_MAGIC 0x35564d5aU

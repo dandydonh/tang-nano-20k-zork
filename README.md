@@ -1,11 +1,18 @@
-# Zork and V3 stories on Tang Nano 20K
+# Zork and V3/V5 stories on Tang Nano 20K
 
-A standalone Z-machine V3 story player for the Sipeed Tang Nano 20K
+A standalone Z-machine V3/V5 story player for the Sipeed Tang Nano 20K
 (GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
 interpreter on the FPGA; no operating system or external computer runs the game.
 Compatible `.dat` files can be copied onto a FAT16/FAT32 microSD card.
 Story data is not included. The supplied local Zork I file is used for regression
-validation; this is an initial V3 implementation, not universal story compatibility.
+validation; this is a bounded interpreter, not universal story compatibility.
+
+Current source adds V5 support, including the supplied V5 editions of
+Hitchhiker's Guide (release 31) and Beyond Zork (release 57). This change requires
+a new bitstream build; the published v0.4.0 release below supports V3 only.
+V5 games draw their own status, menus and split windows across a fixed
+79-column by 32-row screen. Use a serial terminal at least 80 columns by 32 rows.
+V3 retains its existing header and terminal layout. See compatibility limits below.
 
 ## Clone this project
 
@@ -146,6 +153,19 @@ below it. Story text wraps at word boundaries within **79 columns** on both
 serial and HDMI. Firmware sends explicit CRLF line breaks, so long paragraphs
 remain visible even when terminal autowrap is disabled. Wider terminals retain
 this transcript width while the status counters stay at the terminal's right edge.
+Long output pauses at `[MORE]` before the current page scrolls away. Press
+**Space** or **Enter** on the serial or PS/2 keyboard to continue; that key is
+consumed by the pause. At startup the firmware requests an ANSI cursor report
+to detect terminal height, capped at the HDMI display's 32 rows. If no valid
+reply arrives, it uses a conservative 18-row page. The status/upper window and
+one prompt row are excluded from each page. Set the terminal size before reset;
+resize detection during play is not implemented. V5 still requires an 80x32
+or larger serial terminal for its fixed window coordinates.
+Some stories reuse the counter labeled `Moves` for another purpose. Planetfall
+release 37 uses it for Galactic Standard Time: it starts around 4500 and advances
+by different amounts for different actions (`look` adds 9, `inventory` adds 18).
+The game's `score` command reports the same clock value; it is not a count of
+commands entered.
 Overlong words split across lines without losing characters. Input echo is
 immediate; Backspace and history replacement can erase across wrapped lines.
 Use an ANSI/VT100 terminal at least 80 columns wide with
@@ -184,19 +204,25 @@ filename); simple names such as `ZORK2.DAT` are easiest to recognize.
 
 Initial compatibility limits:
 
-- Z-machine **V3**, logical story size 64 bytes through **128 KiB**. The complete
+- Z-machine **V3** through **128 KiB**, and **V5** through **256 KiB**, with a
+  minimum logical size of 64 bytes. The complete
   story loads into SDRAM, including fragmented files and partial final sectors.
 - The full 16-bit writable-memory boundary is supported: up to **65,535 bytes**.
   Writes beyond the declared writable region remain forbidden.
 - Padded files up to **1 MiB** are accepted when a nonzero header length declares
-  a valid story no larger than 128 KiB. Trailing bytes are ignored during execution,
+  a valid story within its version's size limit. Trailing bytes are ignored during execution,
   but their allocated sectors remain protected from saves. A zero-length header
-  uses the actual file size, which must then fit within 128 KiB. No trimming is needed.
+  uses the actual file size, which must then fit the version's limit. No trimming is needed.
 - Unsupported versions, sizes and memory layouts produce a clear startup message.
 - 2,048-word evaluation stack and 96 call frames; unsupported operations fail
-  with a core error. There is no claim that every V3 story will work.
-- Score/moves and time-based V3 status are supported. Split-window output,
-  printer/transcripts and sound are unavailable.
+  with a core error. There is no claim that every V3 or V5 story will work.
+- Score/moves and time-based V3 status are supported. V5 supports two windows (up to 31 upper rows),
+  cursor positioning, inverse text, line/window erasure and one level of undo.
+  Beyond Zork release 57 uses ASCII approximations for its IBM PC borders/arrows.
+  Fonts 1 and 4 share the fixed text font; font 3, color, bold/italic, accented
+  glyphs and timed input are not advertised. Unsupported glyphs render as `?`.
+  Printer/transcripts, command files, sound and auxiliary-file save/restore
+  are unavailable. Full-game playthroughs remain unverified.
 - Output stream 1 can be enabled/disabled. Stream 3 captures raw ZSCII into
   dynamic memory, including newlines, with up to 16 nested tables; captured
   text bypasses the display and wrapping. Unsupported transcript/command-file
@@ -271,13 +297,19 @@ normal story-file copying preserves unrelated files.
 
 The pool holds **20 story identities**, each with the configured number of
 player-selectable positions. Each position has two 128 KiB snapshot banks.
-Identity uses release, serial, checksum, logical story size and writable-memory size;
+Identity uses version, release, serial, checksum, logical story size and writable-memory size;
 renaming a story or adding/removing trailing padding preserves its saves,
 and different releases normally use
 separate slots. Copies with the same identity share a slot. Removing a `.DAT`
 file does not reclaim its saves. A full pool disables saves for new identities
 while retaining access to existing ones. Back up the entire `SAVES.BIN` file
 with the board powered off. No automatic slot deletion occurs.
+
+Existing V3 `ZMV5` snapshots retain their format and remain usable. New V5 saves
+use `ZMV6` snapshots with the V5 call, stream and window state. Both formats
+share the existing pool layout and can coexist; the expansion tool preserves
+both. The V3-only v0.4.0 firmware cannot restore V5 snapshots. These names refer
+to this project's snapshot formats, not the version of the story file.
 
 Firmware resolves file chains at startup and writes only the selected story's
 currently selected position's save-pair data sectors. It never writes FAT tables, FSInfo or directory entries,
@@ -364,24 +396,29 @@ addressing and refresh deadlines. Original V3 programs exercise variable sizes,
 high-memory reads, story identity and isolated saves. Optional private files in
 `inspect_files/` are checked by `python3 tests/test_local_stories.py`; the directory
 is ignored by Git and its contents are never included in the project.
+Original V5 fixtures and optional `tests/test_v5_stories.py` cover high packed
+addresses, objects above 255, nine-character dictionary entries, window output,
+undo, and save/restore. `tests/test_v5.py` also checks mixed V3/V5 save ownership
+and expansion; the supplied private V5 stories are not redistributed.
 
 ## Design and limits
 
 - 27 MHz RV32IM CPU; 64 KiB initialized block RAM for firmware and native stack.
 - 8 MiB integrated 32-bit SDR SDRAM, mapped at `0x30000000` with CPU wait states.
-  A pristine story occupies the first 128 KiB; writable memory starts at
-  `0x30020000`. The controller uses CAS=2, single-word bursts, auto-precharge and
+  A pristine story occupies the first 256 KiB; writable memory starts at
+  `0x30040000`, and the V5 undo buffer at `0x30060000`.
+  The controller uses CAS=2, single-word bursts, auto-precharge and
   autonomous refresh, including while waiting for input or SD transfers. Startup
   checks SDRAM data/address lines and byte enables before loading a story.
 - 2,048-word Z stack and 96 call frames remain in block RAM. The linker reserves
   at least 8 KiB of native stack. No extra wiring or hardware is required.
 - HDMI carries DVI-compatible video, no audio. 80 columns by 32 rows, including
-  a fixed inverse status row showing score and turns. Glyphs are 8x16 pixels,
+  a fixed inverse status row for V3; V5 controls its own status/windows. Glyphs are 8x16 pixels,
   doubled horizontally; console occupies 1280x512 centered in 720p.
-- Explicit 79-column word wrapping, scrolling and basic line editing. No
-  scrollback or MORE pause. One column remains free on an 80-column display.
-- Initial V3 implementation with bounded memory, not a general Z-machine
-  conformance claim. No printer/transcript stream, split window or sound support.
+- Explicit 79-column word wrapping, scrolling, `[MORE]` paging and basic line
+  editing. No HDMI scrollback. One column remains free on an 80-column display.
+- V3/V5 implementation with bounded memory, not a general Z-machine
+  conformance claim. No printer/transcript stream or sound support.
   No complete 350-point playthrough has been validated.
 - LED on pin 20 lights when HDMI PLL is locked and CPU has not trapped;
   that does not prove successful HDMI reception or game startup.

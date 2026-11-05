@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare V3 stories and a save pool, or a FAT16/FAT32 image; never writes a block device."""
+"""Prepare V3/V5 stories and a save pool, or a FAT16/FAT32 image; never writes a block device."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -15,17 +15,17 @@ MAX_GAME_SLOTS = 20
 
 def validate_story(story):
     if not 64 <= len(story) <= 1048576:
-        raise ValueError('V3 file size must be 64 bytes to 1 MiB including padding')
-    if story[0] != 3:
-        raise ValueError('Only Z-machine V3 stories are supported')
+        raise ValueError('Story file size must be 64 bytes to 1 MiB including padding')
+    if story[0] not in (3, 5):
+        raise ValueError('Only Z-machine V3 or V5 stories are supported')
     word = lambda offset: struct.unpack_from('>H', story, offset)[0]
-    length = word(26)*2 or len(story)
+    length = word(26)*(4 if story[0] == 5 else 2) or len(story)
     dynamic = word(14)
-    if (not 64 <= length <= min(len(story), 131072) or not 64 <= dynamic <= length
+    if (not 64 <= length <= min(len(story), 262144 if story[0] == 5 else 131072) or not 64 <= dynamic <= length
             or not dynamic <= word(4) < length or not 64 <= word(6) < length
-            or not 64 <= word(10) <= dynamic-62 or not 64 <= word(12) <= dynamic-480
+            or not 64 <= word(10) <= dynamic-(126 if story[0] == 5 else 62) or not 64 <= word(12) <= dynamic-480
             or not 64 <= word(8) <= length-4 or not 64 <= word(24) <= length-192):
-        raise ValueError('Invalid V3 memory layout')
+        raise ValueError('Invalid story memory layout')
 
 
 def project_files(story, name='ZORK1.DAT', save_slots=1):
@@ -156,10 +156,10 @@ def make_image(files, fat=32, size_mib=None, partitioned=True):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--story', type=Path, action='append', help='V3 story path; repeat for up to 20 stories (default zork1.dat)')
+    parser.add_argument('--story', type=Path, action='append', help='V3/V5 story path; repeat for up to 20 stories (default zork1.dat)')
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument('--output', type=Path, help='New image file (default assets/v3-sdram-fat.img)')
-    parser.add_argument('--expand-saves', type=Path, help='Expand a copy of an existing ZMV5 pool, preserving every original byte; requires --output')
+    parser.add_argument('--expand-saves', type=Path, help='Expand a copy of an existing ZMV5/ZMV6 pool, preserving every original byte; requires --output')
     parser.add_argument('--save-slots', type=int, metavar='N', choices=range(1, MAX_GAME_SLOTS+1), default=DEFAULT_GAME_SLOTS,
                         help='Selectable saves per game (default 5); each adds 5 MiB for 20 games')
     destination.add_argument('--directory', type=Path, help='Existing FAT root or staging directory; creates ZORK/')
@@ -176,12 +176,12 @@ def main():
                 parser.error('--expand-saves requires --output and no story, preparation or image format options')
             old = args.expand_saves.read_bytes()
             if len(old) != 8*2*SAVE_SIZE and not (len(old) and len(old)%POOL_SIZE==0 and len(old)<=POOL_SIZE*MAX_GAME_SLOTS):
-                parser.error('--expand-saves requires a 2 MiB or 5 MiB-multiple ZMV5 pool')
+                parser.error('--expand-saves requires a 2 MiB or 5 MiB-multiple ZMV5/ZMV6 pool')
             if len(old) >= pool_size:
                 parser.error('Destination must have more capacity; choose a larger --save-slots value')
             for offset in range(0, len(old), SAVE_SIZE):
                 header = old[offset:offset+512]
-                if any(header) and header[:4] != b'ZMV5':
+                if any(header) and header[:4] not in (b'ZMV5', b'ZMV6'):
                     parser.error('Source contains an unrecognized snapshot header; left unchanged')
             with args.output.open('xb') as stream:
                 stream.write(old)

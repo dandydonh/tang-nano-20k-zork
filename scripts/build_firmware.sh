@@ -8,7 +8,7 @@ mkdir -p impl/firmware
 "${tool_prefix}gcc" -march=rv32im -mabi=ilp32 -Os -ffreestanding -fno-builtin \
   -ffunction-sections -fdata-sections -Wall -Wextra -Wno-misleading-indentation \
   -nostdlib -Wl,--gc-sections,-Map=impl/firmware/zork.map -T firmware/link.ld \
-  firmware/start.S firmware/zmachine.c firmware/output.c firmware/storage.c firmware/platform.c -lgcc -o impl/firmware/zork.elf
+  firmware/start.S firmware/zmachine.c firmware/output.c firmware/screen.c firmware/storage.c firmware/platform.c -lgcc -o impl/firmware/zork.elf
 "${tool_prefix}objcopy" -O binary impl/firmware/zork.elf impl/firmware/zork.bin
 "${tool_prefix}size" impl/firmware/zork.elf
 python3 - <<'PY'

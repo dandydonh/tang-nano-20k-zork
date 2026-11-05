@@ -1,8 +1,14 @@
 #include "platform.h"
 #include "storage.h"
+#include "screen.h"
+#ifndef REG
 #define REG(n) (*(volatile uint32_t *)(0x20000000U+(n)))
+#endif
+#ifndef TEXT
 #define TEXT ((volatile uint32_t *)0x10000000U)
+#endif
 static unsigned row=1,column=0;
+static unsigned pending_key;
 static int high_capacity;
 static char status_line[80];
 static void serial_string(const char *s){while(*s)REG(20)=*s++;}
@@ -43,6 +49,32 @@ void status_flush(unsigned right_start){
   for(unsigned i=right_start;i<79;i++)REG(20)=status_line[i];
   serial_string("\0338");
 }
+static unsigned display_row=99,display_col=99,display_inverse=99;
+static void serial_number(unsigned n) { if(n>=10)serial_number(n/10);REG(20)='0'+n%10; }
+void display_move(unsigned r,unsigned c) {
+  serial_string("\033[");serial_number(r+1);REG(20)=';';serial_number(c+1);REG(20)='H';
+  display_row=r;display_col=c;row=r;column=c;
+}
+void display_cell(unsigned r,unsigned c,int ch,unsigned inverse) {
+  if(r>=32||c>=79)return;
+  if(display_row!=r||display_col!=c)display_move(r,c);
+  if(display_inverse!=inverse){serial_string(inverse?"\033[7m":"\033[0m");display_inverse=inverse;}
+  TEXT[r*80+c]=ch|(inverse?128:0);REG(20)=ch;display_col=c+1;column=c+1;
+}
+void display_clear(unsigned first,unsigned last) {
+  for(unsigned r=first;r<last;r++){
+    display_move(r,0);serial_string("\033[0m\033[2K");
+    for(unsigned c=0;c<80;c++)TEXT[r*80+c]=' ';
+  }
+  display_inverse=0;display_row=display_col=99;
+}
+void display_scroll(unsigned top) {
+  for(unsigned i=top*80;i<2480;i++)TEXT[i]=TEXT[i+80];
+  for(unsigned i=2480;i<2560;i++)TEXT[i]=' ';
+  serial_string("\033[0m\033[");serial_number(top+1);serial_string(";32r\033[32;1H\r\n");
+  display_inverse=0;
+  display_row=31;display_col=0;row=31;column=0;
+}
 static const uint8_t keymap[128]={
  [0x1c]='a',[0x32]='b',[0x21]='c',[0x23]='d',[0x24]='e',[0x2b]='f',
  [0x34]='g',[0x33]='h',[0x43]='i',[0x3b]='j',[0x42]='k',[0x4b]='l',
@@ -54,11 +86,11 @@ static const uint8_t keymap[128]={
  [0x54]='[',[0x5b]=']',[0x5d]=92,[0x4c]=';',[0x52]=39,
  [0x41]=',',[0x49]='.',[0x4a]='/',[0x0e]='`'
 };
-int console_get(void) {
+static int raw_console_get(void) {
   static unsigned shifts,release,extended,caps,previous_cr;
-  console_story_flush();
   for(;;) {
-    uint32_t v=REG(0);
+    uint32_t v;
+    if(pending_key){v=pending_key;pending_key=0;}else v=REG(0);
     if(v&256){int c=v&255;if(c==10&&previous_cr){previous_cr=0;continue;}previous_cr=c==13;return c;}
     v=REG(16);if(!(v&256))continue;unsigned scan=v&255;
     if(scan==0xf0){release=1;continue;}if(scan==0xe0){extended=1;continue;}
@@ -76,6 +108,39 @@ int console_get(void) {
     }
     release=0;extended=0;
   }
+}
+int console_get(void) {
+  screen_flush();console_story_flush();console_page_reset();
+  return raw_console_get();
+}
+void console_more(void) {
+  // Called at column zero after a newline. Preserve cells under the prompt,
+  // and read keys without recursively flushing the active output word.
+  unsigned saved[6];
+  for(unsigned i=0;i<6;i++)saved[i]=TEXT[row*80+i];
+  serial_string("\033[0m[MORE]");
+  for(unsigned i=0;i<6;i++)TEXT[row*80+i]="[MORE]"[i];
+  int c;do{c=raw_console_get();}while(c!=' '&&c!='\r'&&c!='\n');
+  serial_string("\b\b\b\b\b\b");
+  for(unsigned i=0;i<6;i++){
+    TEXT[row*80+i]=saved[i];serial_string(saved[i]&128?"\033[7m":"\033[0m");REG(20)=saved[i]&127;
+  }
+  serial_string("\b\b\b\b\b\b");display_row=display_col=display_inverse=99;
+}
+/* ANSI cursor report after moving to the far corner gives the terminal size.
+ * Bound the wait so HDMI/PS2-only use never depends on a serial reply. */
+static unsigned terminal_height(void) {
+  unsigned state=0,rows=0;
+  serial_string("\033[999;999H\033[6n\033[2;1H");
+  for(unsigned wait=0;wait<100000;wait++) {
+    unsigned v=REG(0);if(!(v&256))continue;unsigned c=v&255;
+    if(!state){if(c==27)state=1;else{pending_key=c|256;break;}}
+    else if(state==1){if(c=='[')state=2;else state=0;}
+    else if(state==2){if(c>='0'&&c<='9'){rows=rows*10+c-'0';if(rows>999)break;}else if(c==';')state=3;else break;}
+    else if(c=='R')return rows>=4?(rows<32?rows:32):18;
+    else if(c<'0'||c>'9')break;
+  }
+  return 18;
 }
 static uint8_t spi(unsigned value){REG(4)=value;while(REG(4)&256){}return REG(4);}
 static void deselect(void){REG(8)=1;spi(255);}
@@ -144,6 +209,7 @@ void platform_init(void){
   // Keep the terminal's default background: ANSI palette black may be gray.
   // Reserve row 1 for status; the scrolling region extends to the terminal bottom.
   serial_string("\033[0m\033[37;49m\033[2J\033[2;r\033[2;1H");
+  console_page_height(terminal_height());
   for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
   check_sdram();
   if(!sd_init())fatal("SD initialization failed; insert prepared card and reset");

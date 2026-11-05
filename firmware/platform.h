@@ -7,6 +7,12 @@ void console_reset(void);
 void console_put(int c);
 void console_story_put(int c);
 void console_story_flush(void);
+/* Count completed lower-window lines; input starts a fresh page. Height zero
+ * disables paging for noninteractive native tests. */
+void console_page_height(unsigned rows);
+void console_page_reset(void);
+void console_page(unsigned top);
+void console_more(void);
 /* Platform backend: emit one unwrapped character or move to the previous
  * transcript line's last used column. Status output bypasses the formatter. */
 void console_emit(int c);

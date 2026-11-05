@@ -1,13 +1,111 @@
-# SDRAM V3 loader: build and validation
+# SDRAM V3/V5 loader: build and validation
 
 Updated 2026-11-04 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
 
-This build loads the selected V3 story into integrated SDRAM, supports the full
+This build loads the selected V3 or V5 story into integrated SDRAM, supports the full
 16-bit writable-memory boundary, accepts legacy trailing file padding and uses
 larger streaming snapshots. Current source corrects screen/memory output-stream selection and adds player-selected save positions,
 with five per game by default and a compatible lossless pool expansion. Up to 20 DAT entries in `/ZORK` can be selected
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
+
+## MORE paging build, 2026-11-04
+
+Current firmware pauses long V3 and V5 lower-window output at `[MORE]`.
+Space/Enter through UART or PS/2 resumes output without submitting a game
+command. An initial ANSI cursor report detects terminal height (maximum 32);
+the bounded no-response fallback is 18 rows. Status/upper rows and one prompt
+row are reserved. V5 retains its fixed 79x32 screen requirement; resize during
+play requires reset. Terminal and HDMI display use the same page pauses.
+
+`./build.sh` passes synthesis/place/route and setup/hold checks. Resources:
+3118 logic, 37 BSRAM. Firmware text/data/BSS: **32384/16/24604 = 57004 bytes**,
+340 bytes before the reserved-stack boundary. Bitstream SHA-256:
+`76d410881095b1828e2bb32dacf349e3c68957ee48d864c2ddbab190f992c07c`.
+Firmware SHA-256:
+`887ee7a414b0a38c01c999efe492100d2b795fb0fab020698cca2209cc1ee39d`.
+Logs: `impl/paging-final-build.log`, `impl/paging-tests.log`.
+
+Exact private Zork III startup passes page-boundary and complete-text checks
+at 4/18/24/32 rows. Tests using the actual board backend pass height query,
+fallback, UART/PS2 acknowledgement, CRLF handling, prompt restoration,
+automatic wraps and V5 upper/lower-window separation. A final-firmware
+actual-CPU run also passes two real UART page acknowledgements, complete
+long paragraphs, wrapped editing, save/restore and reset: **75123001 cycles /
+364 SD reads / 21 writes**. Its firmware binary is byte-identical to the final
+FPGA build; logs are `impl/paging-cpu.log` and `impl/paging-cpu-tests.log`.
+All eight broader processor regressions on the first paging build pass,
+including V5 at **337284236 cycles / 1870 reads / 145 writes**. The first
+runner invocation stopped at a test parser that rejected the new size query;
+after updating the parser, all remaining transcript/terminal checks pass on
+the completed CPU logs. The dedicated final-firmware paging CPU test is now
+included in `tests/run.sh`, alongside the board-backend and optional private
+Zork III checks. This paging bitstream was programmed at the user's request
+using unchanged `./program_flash.sh` with approved direct USB access:
+GW2AR-18C ID 0x0000081B, flash 0x0B4017, cable 4/channel 0, operation 9.
+The programmer reports **SPI program and verify success**, exit 0, 30.17 seconds.
+Programming/readback is verified; paging appearance, UART/PS2 acknowledgement,
+HDMI and physical power-cycle behavior remain unobserved for this build.
+No physical SD data was changed. This supersedes the V3/V5 programming below.
+
+## V5 source build, 2026-11-04
+
+Current source adds V5 packed addresses, objects/properties, call variants,
+dictionary and input formats, table/extended instructions, one-level undo,
+two-window cursor/erase/inverse output, and persistent save/restore. V5 logical
+images fit in 256 KiB; trailing padding remains protected. V3 retains its
+status/header and snapshot layout. V5 uses `ZMV6` snapshots with stream/screen
+state and version-separated ownership within the unchanged save pool.
+
+`./build.sh` passes synthesis, placement/routing and setup/hold checks.
+Firmware text/data/BSS: **31492/16/24592 = 56100 bytes**, leaving 1244 bytes
+before the linker's reserved-stack boundary. Bitstream SHA-256:
+`ad979aea67a64c1f3048095dfb4c6dcb8ccc9a54cdc8b189da8415595c19d47e`.
+Firmware SHA-256:
+`d08455194883d03baa3e8a93b88073a220899bf70a59be8908f2391b7d4c67d5`.
+Logs: `impl/v5-build.log`, `impl/v5-tests.log`.
+
+Native original V5 bytecode passes high calls/text beyond 128 KiB, seven call
+arguments, objects above 255, 48 attributes, long property headers, nine-character
+dictionary entries, shifts/tables, undo and save/reset/restore. Independent
+Frotz execution passes. Mixed V3/V5 saves and lossless pool expansion pass.
+Optional private Hitchhiker's Guide V5 release 31 and Beyond Zork V5 release 57
+pass startup, sampled gameplay, save/restore and fresh-process restore, with
+independent Frotz narrative checks. Screen-grid tests cover independent
+cursors, inverse cells, lower scrolling, erase and wrapped backspace.
+Full `bash tests/run.sh` exits 0, including all eight processor fixtures,
+SDRAM/peripherals/video/TMDS and final transcript/terminal checks. The V5 CPU
+run verifies a 256 KiB story, 65,535 dynamic bytes, high calls, inverse upper
+text-RAM cells, undo and save/reset/restore: **331387490 cycles / 1870 reads /
+145 writes**. V3 CPU results (cycles/reads/writes): FAT16 SDHC
+122980646/758/40; SDSC 122994821/758/40; FAT32 124120651/760/40; menu
+129869327/796/40; maximum-memory 225666169/1360/145; wrapping 66062108/364/21;
+selected saves 145831196/684/42.
+
+Additional native checks pass all 145 maximum-memory V5 interrupted-save
+boundaries, corrupted-screen-trailer fallback, two selected positions, ANSI
+arrow keys, maximum/preloaded input, custom alphabets and CATCH/THROW. Rendered
+native screens for both supplied games and actual V5 CPU UART checks pass.
+Address/undefined-behavior sanitizers pass the maximum-memory original program
+and both private V5 samples (leak checking disabled for the ptrace environment).
+The runner now includes these additional separately verified native/display
+checks; no firmware changed during final validation.
+
+V5 controls the full fixed 79x32 display; serial terminals need at least 80x32.
+Beyond Zork 57/871221/c5ad uses standard-described ASCII IBM border conversion.
+Fonts 1/4 use the same fixed font. Font 3, color, bold/italic, accented glyphs,
+timed input, sound, transcript/command files and auxiliary-file save/restore
+are unavailable; full-game playthroughs have not been verified.
+
+This V5 build was programmed into persistent board flash at the user's explicit
+request with approved direct USB JTAG access. The unchanged script used
+GW2AR-18C ID 0x0000081B, flash 0x0B4017, cable 4/channel 0, operation 9.
+The programmer reports **SPI program and verify success**, exit 0, 30.28 seconds.
+Programming/readback is verified; physical V3/V5 gameplay, windows, HDMI, PS/2,
+save/restore and actual power-cycle behavior remain unobserved for this build.
+No physical SD files were changed. The V5 build has not been published and the
+published V3-only v0.4.0 assets remain unchanged. Historical build hashes/results
+below refer to V3 and are superseded by this programming status.
 
 ## Output streams correction
 
@@ -71,8 +169,9 @@ The earlier fixed-Zork FAT implementation remains in Git history at commit
 
 The original 27 MHz controller exposes the integrated 8 MiB SDR SDRAM on the
 PicoRV32 wait-state bus at `0x30000000..0x307fffff`. Firmware and native stack
-remain in 64 KiB initialized block RAM. The first 128 KiB of SDRAM holds a
-pristine story; mutable bytes start at `0x30020000`. Restart copies the initial
+remain in 64 KiB initialized block RAM. The first 256 KiB of SDRAM holds a
+pristine story; mutable bytes start at `0x30040000`, with a V5 undo cache at
+`0x30060000`. Restart copies the initial
 dynamic region from the pristine image; VERIFY reads the pristine image.
 Story reads and game writes retain their logical/dynamic bounds checks.
 
@@ -106,10 +205,11 @@ RWX warning is expected. Firmware binary SHA-256:
 
 ## Padded files and persistent saves
 
-Logical V3 images range from 64 bytes through 128 KiB. Physical DAT files may
+Logical V3 images range from 64 bytes through 128 KiB; V5 supports up to
+256 KiB. Physical DAT files may
 contain trailing bytes, up to a bounded 1 MiB allocation. A nonzero header
-length must declare an image within the file and V3 limit. Zero-length older
-headers use actual EOF, which must then fit in 128 KiB. The loader follows and
+length must declare an image within the file and its version's limit. Zero-length
+headers use actual EOF, which must fit that limit. The loader follows and
 protects the entire physical chain, including padding, while executing only
 the logical image. Unsupported versions and invalid layouts are rejected.
 

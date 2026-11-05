@@ -20,11 +20,14 @@ def render(data,width=80,wrap=False):
     row,col,pos=1,0,0
     clipped=0
     while pos<len(data):
-        control=re.match(r'\x1b\[(\d+)([AC])',data[pos:])
+        query='\x1b[999;999H\x1b[6n\x1b[2;1H'
+        if data.startswith(query,pos):
+            pos+=len(query);continue
+        control=re.match(r'\x1b\[(\d+)([ACm])',data[pos:])
         if control:
             n=int(control[1])
             if control[2]=='A':row-=n
-            else:col=min(width-1,col+n)
+            elif control[2]=='C':col=min(width-1,col+n)
             pos+=len(control[0]);continue
         c=data[pos];pos+=1
         if c=='\r':col=0
@@ -86,7 +89,8 @@ if len(sys.argv)>1:
     intro=' '.join(['a lengthy paragraph must remain complete when the terminal does not wrap automatically']*6)
     for boot in boots:
         clean=re.sub(r'\x1b7.*?\x1b8','',boot,flags=re.S)
-        assert intro in ' '.join(clean.split()), 'paragraph words missing/split in CPU output'
+        narrative=re.sub(r'\x1b\[0m\[MORE\]\x08{6}(?:(?:\x1b\[[07]m)?.){6}\x08{6}','',clean)
+        assert intro in ' '.join(narrative.split()), 'paragraph words missing/split in CPU output'
         assert 'alpha ready' in clean and 'tail data' in clean
         for width in (80,100,132,180):
             for wrap in (False,True):

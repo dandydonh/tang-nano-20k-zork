@@ -9,7 +9,10 @@ module sd_spi_model(input wire sck,cs,mosi,output reg miso);
   initial begin
     block_addressing=!$test$plusargs("sdsc");
     for(i=0;i<1024;i=i+1)save_sectors[i]=32'hffffffff;
-    if($test$plusargs("slots"))begin
+    if($test$plusargs("v5"))begin
+      $readmemh("impl/test-v5.hex",disk);
+      $readmemh("impl/test-v5-save-sectors.hex",save_sectors);
+    end else if($test$plusargs("slots"))begin
       $readmemh("impl/test-slots.hex",disk);
       $readmemh("impl/test-slots-save-sectors.hex",save_sectors);
     end else if($test$plusargs("wrap"))begin

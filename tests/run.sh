@@ -12,15 +12,28 @@ if ! command -v "$iverilog_bin" >/dev/null 2>&1; then
   ivl_args=(-B /tmp/zork-tools/usr/lib/x86_64-linux-gnu/ivl)
 fi
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
-  -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/storage.c tests/host_platform.c -o impl/zork-host
+  -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/screen.c firmware/storage.c tests/host_platform.c -o impl/zork-host
 python3 tests/test_output.py
+gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
+  -fno-builtin -ffunction-sections -fdata-sections -Ifirmware \
+  tests/paging_tb.c firmware/output.c -Wl,--gc-sections -o impl/paging-test
+impl/paging-test
+python3 tests/test_paging.py
+gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -Ifirmware \
+  firmware/screen.c tests/v5_screen_tb.c -o impl/v5-screen-test
+impl/v5-screen-test
 python3 tests/test_streams.py
 python3 tests/test_story.py
 python3 tests/test_fat.py
 python3 tests/test_v3.py
+python3 tests/test_v5.py
+python3 tests/test_v5_stories.py
+python3 tests/test_v5_io.py
+python3 tests/test_v5_display.py
 python3 tests/test_save_slots.py
 python3 tests/test_boot_menu.py
 python3 tests/test_local_stories.py
+python3 tests/test_planetfall.py
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s sdram_tb -o impl/tests/sdram \
   tests/sdram_tb.v tests/sdram_model.v src/sdram_controller.v
 "$vvp_bin" impl/tests/sdram
@@ -42,18 +55,21 @@ sys.path.insert(0,'scripts')
 from fat_helpers import FatImage
 from make_sd import make_image, project_files
 from v3_fixture import make_story
+from v5_fixture import make_story as make_v5_story
 files=project_files(Path('zork1.dat').read_bytes())
 # Disposable fragmented fixtures; delivery images and real saves are untouched.
-for fat,tag,partitioned in ((16,'sd',False),(32,'fat32',True),(16,'menu',False),(16,'v3',False),(16,'wrap',False),(16,'slots',False)):
+for fat,tag,partitioned in ((16,'sd',False),(32,'fat32',True),(16,'menu',False),(16,'v3',False),(16,'wrap',False),(16,'slots',False),(16,'v5',False)):
     fixture=project_files(make_story(131070,dynamic=65535)+b'\x1a'+b'^'*24529) if tag=='v3' else files+([(f'GAME{i:02}.DAT',make_story(release=i+1)) for i in range(18)] if tag=='menu' else [])
     if tag=='wrap':
         intro=' '.join(['a lengthy paragraph must remain complete when the terminal does not wrap automatically']*6)
         fixture=project_files(make_story(intro=intro,input_size=120,stream_check=True))
+    if tag=='v5':
+        fixture=project_files(make_v5_story(dynamic=65535),'VFIVE.DAT')
     if tag=='slots':
         fixture=project_files(make_story(),save_slots=2)
     layout=FatImage(make_image(fixture,fat,16 if fat==16 else 64,partitioned))
-    for name,first in (() if tag=='slots' else (('ZORK1.DAT',11000),('SAVES.BIN',12000))):
-        layout.fragment(name,first,stride=1 if fat==32 and name=='SAVES.BIN' else 2)
+    for name,first in (() if tag=='slots' else (('VFIVE.DAT' if tag=='v5' else 'ZORK1.DAT',11000),('SAVES.BIN',12000))):
+        layout.fragment(name,first,stride=1 if (tag=='v5' and name=='VFIVE.DAT') or (fat==32 and name=='SAVES.BIN') else 2)
     # FAT32 pool remains contiguous so all headers fit the model's 16 MiB.
     assert max(layout.sectors('SAVES.BIN'))<32768
     sectors=layout.sectors('SAVES.BIN')[:512]
@@ -80,7 +96,7 @@ import subprocess
 # Isolated card RAM per process; shared fixture files are read-only.
 runs=[('soc-verilator.log',[]),('soc-sdsc.log',['+sdsc']),
       ('soc-fat32.log',['+fat32']),('soc-menu.log',['+menu']),('soc-v3.log',['+v3']),('soc-wrap.log',['+wrap']),
-      ('soc-slots.log',['+slots'])]
+      ('soc-slots.log',['+slots']),('soc-v5.log',['+v5'])]
 def simulate(item):
     name,args=item
     with Path('impl',name).open('w') as log:
@@ -119,3 +135,16 @@ print('PASS actual CPU selected-save states, UART/PS2 menu input, cancellation a
 PYSLOTS
 python3 tests/test_terminal.py
 python3 tests/test_output.py --cpu-log impl/soc-wrap.log
+
+python3 - <<'PYV5'
+from pathlib import Path
+import re
+s=Path('impl/soc-v5.log').read_text()
+assert 'PASS V5 CPU' in s and 'testfailed' not in s and 'CORE ERROR' not in s
+clean=re.sub(r'\x1b\[[0-9;]*[A-Za-z]','',s)
+assert clean.count('restored')==2 and 'high address text' in clean and clean.count('vfive ready')==2, clean
+print('PASS V5 actual CPU: 256 KiB story, 65535 dynamic bytes, high calls, undo, windows, persistent save/reset/restore')
+PYV5
+
+python3 tests/test_v5_display.py impl/soc-v5.log
+python3 tests/test_paging_cpu.py

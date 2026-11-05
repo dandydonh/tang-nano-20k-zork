@@ -26,6 +26,8 @@ module soc_tb;
  integer slot_menus=0,slot_position=0,confirmations=0,confirm_position=0;
  string slot_prompt="Slot number [Enter=1, 0=cancel]: ";
  string confirm_prompt="? [y/N]: ";
+ string more_prompt="[MORE]";
+ integer more_position=0,more_requests=0;
  always @(posedge clk)begin
    tr<=text[ta];if(tw)text[ta]<=td;
    if($test$plusargs("wrap")&&tw&&ta>=80&&ta<2560&&ta%80==79&&td!=" ")
@@ -33,6 +35,10 @@ module soc_tb;
    if(reset)init_position=0;
    if(!reset)begin cycles=cycles+1;if(trap)$fatal(1,"CPU trap at %h",dut.cpu.reg_pc);
      if(dut.io_write&&dut.addr[7:0]==20&&!dut.tx_busy)begin
+       if(dut.wdata[7:0]==more_prompt[more_position])begin
+         more_position=more_position+1;
+         if(more_position==more_prompt.len())begin more_requests=more_requests+1;more_position=0;end
+       end else more_position=dut.wdata[7:0]==more_prompt[0]?1:0;
        if(init_position<terminal_init.len())begin
          if(dut.wdata[7:0]!=terminal_init[init_position])
            $fatal(1,"terminal startup attributes/clear mismatch at byte %0d",init_position);
@@ -71,6 +77,13 @@ module soc_tb;
      rx=1;repeat(234)@(negedge clk);
    end
  endtask
+ initial begin : acknowledge_pages
+   integer handled=0;
+   forever begin
+     wait(more_requests>handled);repeat(2000)@(negedge clk);
+     send_uart(" ");handled=handled+1;
+   end
+ end
  task send_key(input [7:0] c);
    reg [10:0] frame;integer b;begin
      frame={1'b1,~^c,c,1'b0};
@@ -85,6 +98,25 @@ module soc_tb;
  initial begin
    $display("Starting firmware/SD integration test");$fflush();
    repeat(20)@(negedge clk);reset=0;
+   if($test$plusargs("v5"))begin
+     wait(prompts==1);repeat(10000)@(negedge clk);
+     if(text[1]!=(8'h80|"u")||text[12]!=(8'h80|"n"))$fatal(1,"V5 inverse upper window missing");
+     uart_line("s");wait(prompts==2);repeat(10000)@(negedge clk);
+     uart_line("n");wait(prompts==3);repeat(10000)@(negedge clk);
+     if((memory.memory['h40104/4]&'hffff)!='h0900)$fatal(1,"V5 move state missing");
+     uart_line("l");wait(prompts==4);repeat(10000)@(negedge clk);
+     uart_line("r");wait(prompts==5);repeat(10000)@(negedge clk);
+     if((memory.memory['h40104/4]&'hffff)!=0)$fatal(1,"V5 restore state missing");
+     uart_line("l");wait(prompts==6);repeat(10000)@(negedge clk);
+     @(negedge clk);reset=1;repeat(20)@(negedge clk);reset=0;
+     wait(prompts==7);repeat(10000)@(negedge clk);
+     uart_line("r");wait(prompts==8);repeat(10000)@(negedge clk);
+     uart_line("l");wait(prompts==9);repeat(10000)@(negedge clk);
+     if(text[1]!=(8'h80|"u")||text[12]!=(8'h80|"n"))$fatal(1,"V5 upper window lost to scrolling/restore");
+     if(card.writes<2||terminal_initializations!=2)$fatal(1,"V5 persistence coverage missing");
+     $display("\nPASS V5 CPU: high calls, max dynamic memory, inverse upper window, undo, save/reset/restore: %0d cycles / %0d reads / %0d writes",cycles,card.reads,card.writes);
+     $finish;
+   end
    if($test$plusargs("slots"))begin
      wait(prompts==1);wait(status_updates==prompts);repeat(2000)@(negedge clk);
      uart_line("s");wait(slot_menus==1);repeat(2000)@(negedge clk);

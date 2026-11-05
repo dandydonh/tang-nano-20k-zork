@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
         broken = bytearray(alpha)
         struct.pack_into(fmt, broken, offset, value)
         invalid.append((label, bytes(broken), reason))
-    bad('wrong version', 0, 'B', 5, 'requires Z-machine V3')
+    bad('wrong version', 0, 'B', 4, 'requires Z-machine V3')
     bad('no dynamic RAM', 14, '>H', 32, 'memory layout')
     bad('PC outside file', 6, '>H', 60000, 'memory layout')
     bad('globals outside RAM', 12, '>H', 2000, 'memory layout')

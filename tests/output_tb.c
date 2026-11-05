@@ -4,6 +4,7 @@
 #include "platform.h"
 void console_emit(int c) { if(c=='\n')putchar('\r');putchar(c); }
 int console_previous_line(void) { fputs("\033[1A\033[78C",stdout);return 1; }
+void console_more(void) { fputs("[MORE]",stdout); }
 int main(int argc,char **argv) {
   int raw=argc>1&&!strcmp(argv[1],"raw");
   int edit=argc>1&&!strcmp(argv[1],"edit");
