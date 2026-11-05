@@ -3,6 +3,7 @@ set -euo pipefail
 project_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 mkdir -p impl/tests
+python3 tests/test_serial_terminal.py
 iverilog_bin="${IVERILOG:-iverilog}"
 vvp_bin="${VVP:-vvp}"
 ivl_args=()

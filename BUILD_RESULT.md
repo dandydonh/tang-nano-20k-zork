@@ -57,9 +57,16 @@ This build was programmed at the user's explicit request with unchanged
 flash 0x0B4017, cable 4/channel 0, operation 9. The programmer reports
 **SPI program and verify success**, exit 0, 30.46 seconds. Persistent flash
 now contains 93dfa647...268615, superseding 76d41088...2c07c.
-Programming/readback is verified. The user reports improved serial appearance.
-Physical resize retention, MORE acknowledgement, HDMI and power-cycle behavior
-remain to be checked for this build. No physical SD data was changed.
+Programming/readback is verified. The user reports improved serial appearance,
+with all text disappearing when the terminal is resized. This was reproduced
+in installed Minicom 2.10 using a simulated serial port: resizing alone emits
+screen-clear commands with no board traffic. Minicom's resize handler closes
+and recreates its display window. A new `scripts/serial_terminal.py` launcher
+forwards UART/ANSI bytes directly to the desktop terminal, preserving its display
+on resize. Four PTY tests cover repeated resizing, size replies, keys, exit,
+termination and disconnect cleanup. No FPGA rebuild or reprogramming was needed
+for this client fix. Physical launcher use, HDMI and power-cycle behavior remain
+to be observed for this build. No physical SD data was changed.
 
 ## MORE paging build, 2026-11-04 (previous programmed build)
 

@@ -144,6 +144,26 @@ BL616 bridge carries serial RX/TX on FPGA pins 70/69. HDMI and serial show the
 same transcript. This uses the computer only as a keyboard/display terminal;
 the FPGA runs the game. Close the terminal before programming if USB is busy.
 
+For a terminal window you intend to resize, close Minicom and run the supplied
+Python launcher from the project directory:
+
+```sh
+python3 scripts/serial_terminal.py /dev/ttyUSB1
+```
+
+It uses Python's standard library and sets 115200 baud, 8N1, with no flow
+control or local echo. Press **Ctrl+]** to disconnect. Your desktop terminal
+handles the display and scrollback; the launcher forwards the FPGA's ANSI size
+queries and the terminal's replies unchanged. Resizing sends no screen clear.
+Firmware applies the new dimensions at the next command or MORE pause.
+
+Minicom 2.10 recreates and clears its display when its window is resized. This
+was reproduced with a simulated serial port and no FPGA attached: resizing
+sent a clear sequence to the desktop terminal, without any board traffic.
+Use Minicom with a fixed window size, or use the launcher above when resizing.
+The launcher restores console/serial settings and the full scrolling area on
+exit. Enter `look` after connecting to show the current location again.
+
 At boot/reset, firmware sends ANSI sequences to reset text attributes, select
 white text on the terminal's default background, clear the screen and move to
 row 2 before the startup banner. The fixed first row shows
