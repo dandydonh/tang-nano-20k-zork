@@ -1,5 +1,8 @@
 # Zork and V3/V5 stories on Tang Nano 20K
 
+[Project website](https://dandydonh.github.io/tang-nano-20k-zork/) ·
+[v0.5.0 preview downloads](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.5.0)
+
 A standalone Z-machine V3/V5 story player for the Sipeed Tang Nano 20K
 (GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
 interpreter on the FPGA; no operating system or external computer runs the game.
