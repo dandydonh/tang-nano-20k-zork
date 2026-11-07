@@ -4,7 +4,7 @@
 #include "storage.h"
 #include "screen.h"
 static FILE *disk;
-static long cut_after=-1,writes;
+static long cut_after=-1,writes,attempts;
 void platform_init(void){const char *p=getenv("ZORK_SD_IMAGE");disk=fopen(p?p:"assets/zork-fat.img","r+b");if(!disk){perror("SD image");exit(1);}const char *cut=getenv("ZORK_CUT_AFTER_WRITES");if(cut)cut_after=strtol(cut,NULL,10);setbuf(stdout,NULL);const char *cols=getenv("ZORK_TERM_COLUMNS");if(cols)console_width(strtoul(cols,NULL,10)-1);const char *rows=getenv("ZORK_PAGE_ROWS");if(rows)console_page_height(strtoul(rows,NULL,10));}
 void console_serial_emit(int c){putchar(c);}
 void console_clear(void){fputs("\033[0m\033[2J\033[2;1H",stdout);}
@@ -18,7 +18,19 @@ static char status_line[81];
 void status_put(unsigned col,int c){if(col<80)status_line[col]=c;}
 void status_flush(unsigned right_start){(void)right_start;fprintf(stderr,"%s\n",status_line);}
 int sd_read_sector(uint32_t sector,uint8_t *p){return !fseek(disk,512L*sector,SEEK_SET)&&fread(p,1,512,disk)==512;}
-int sd_write_sector(uint32_t sector,const uint8_t *p){if(!storage_writable(sector))return 0;if(cut_after>=0&&writes==cut_after)exit(99);int ok=!fseek(disk,512L*sector,SEEK_SET)&&fwrite(p,1,512,disk)==512;fflush(disk);if(ok)writes++;return ok;}
+int sd_write_sector(uint32_t sector,const uint8_t *p){
+  if(!storage_writable(sector))return 0;
+  if(cut_after>=0&&writes==cut_after)exit(99);
+  const char *fail=getenv("ZORK_FAIL_WRITE"),*trace=getenv("ZORK_WRITE_LOG");
+  if(getenv("ZORK_READ_ONLY"))return 0;
+  if(trace){FILE *log=fopen(trace,"a");if(!log)exit(98);fprintf(log,"%u\n",sector);fclose(log);}
+  if(fail&&attempts++==strtol(fail,NULL,10)) {
+    const char *torn=getenv("ZORK_TORN_BYTES");
+    if(torn){unsigned n=strtoul(torn,NULL,10);if(n>512)n=512;if(!fseek(disk,512L*sector,SEEK_SET))fwrite(p,1,n,disk);fflush(disk);}
+    return 0;
+  }
+  int ok=!fseek(disk,512L*sector,SEEK_SET)&&fwrite(p,1,512,disk)==512;fflush(disk);if(ok)writes++;return ok;
+}
 
 static unsigned display_row,display_col;
 void display_move(unsigned r,unsigned c){if(getenv("ZORK_SCREEN"))printf("\033[%u;%uH",r+1,c+1);else if(r!=display_row)putchar('\n');display_row=r;display_col=c;}

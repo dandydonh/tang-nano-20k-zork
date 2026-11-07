@@ -1,5 +1,4 @@
-/* FAT16/FAT32 V3/V5 discovery. Selected snapshots and owner claims are writable.
- * No filesystem metadata writes, allocation or hot swapping. */
+/* FAT16/FAT32 discovery and lazy per-story save allocation. No hot swapping. */
 #include "platform.h"
 #include "storage.h"
 #define STORY_SECTORS (V3_FILE_MAX/512U)
@@ -53,6 +52,15 @@ static struct directory_extent directories[DIR_EXTENTS];
 #define directories ((struct directory_extent *)0x300d0000U)
 #endif
 static unsigned directory_count;
+static struct entry game_directory;
+static uint32_t volume_base,volume_total,fat_size_sectors,fat_copies,fat_primary;
+static uint32_t fsinfo_sector,backup_fsinfo;
+static unsigned fat_mirrored;
+static unsigned sidecar_pending,metadata_active;
+static uint32_t metadata_sector;
+static uint16_t save_name[260];
+static unsigned save_name_length;
+static uint8_t save_alias[11];
 static uint32_t u16(const uint8_t *p) { return p[0]|((uint32_t)p[1]<<8); }
 static uint32_t u32(const uint8_t *p) { return u16(p)|(u16(p+2)<<16); }
 static unsigned be16(const uint8_t *p) { return ((unsigned)p[0]<<8)|p[1]; }
@@ -112,6 +120,16 @@ static int mount_volume(uint32_t base, uint32_t partition_size) {
   } else {
     if (!roots || roots%16 || !u16(buf+22)) return 0;
     root_start = base + reserved + fats*fat_size;
+  }
+  volume_base=base;volume_total=total;fat_size_sectors=fat_size;fat_copies=fats;
+  fat_primary=base+reserved;fat_mirrored=!fat32||!(u16(buf+40)&0x80);
+  fsinfo_sector=backup_fsinfo=0;
+  if(fat32) {
+    unsigned info=u16(buf+48),backup=u16(buf+50);
+    if(info&&info<reserved) {
+      fsinfo_sector=base+info;
+      if(backup&&backup<reserved&&info<reserved-backup)backup_fsinfo=base+backup+info;
+    }
   }
   return 1;
 }
@@ -524,7 +542,10 @@ static int select_saves(void) {
   save_owner=(unsigned)slot;mapped_game_slot=0;
   return !save_owner||map_file(&pool,1,save_owner*2*SAVE_SECTORS);
 }
+#include "storage_create.inc"
+
 int storage_init(void) {
+  sidecar_pending=metadata_active=0;
   indexed_pool=index_claimed=index_write_active=extent_count=0;
   ready=saves_ready=story_count=story_omitted=directory_count=story_sectors=save_slots=game_slots=0;pool.size=0;fat_cached_sector=UINT32_MAX;
   story_first_sector=UINT32_MAX;story_last_sector=0;
@@ -545,8 +566,15 @@ int storage_init(void) {
   if(!directory(root_start,!fat32,0,&dir)||!(dir.attr&0x10)||!cluster_valid(dir.cluster)||
       !protect_directory(root_start,!fat32)||!protect_directory(dir.cluster,0)||
       !directory(dir.cluster,0,1,&dir)||!select_story())return 0;
-  saves_ready=select_saves();
-  if(!saves_ready)say("Saves disabled: prepare /ZORK/SAVES.BIN.\n");
+  game_directory=dir;
+  int sidecar=select_sidecar();
+  saves_ready=sidecar>0;
+  /* Existing shared pools remain usable; fresh cards need only stories. */
+  if(sidecar==0&&pool.size)saves_ready=select_saves();
+  else if(sidecar==0) {
+    sidecar_pending=1;saves_ready=!(game_directory.attr&1);game_slots=5;mapped_game_slot=0;
+  }
+  if(!saves_ready)say("Saves disabled: invalid, conflicting or read-only save file/directory.\n");
   ready=1;return 1;
 }
 uint32_t storage_story_size(void){return story_bytes;}
@@ -556,6 +584,7 @@ int storage_saves_available(void){return ready&&saves_ready;}
 unsigned storage_game_slots(void){return storage_saves_available()?game_slots:0;}
 int storage_select_save(unsigned slot) {
   if(!storage_saves_available()||slot>=game_slots)return 0;
+  if(sidecar_pending){mapped_game_slot=slot;return 1;}
   if(slot==mapped_game_slot)return 1;
   if(indexed_pool){if(index_map_pair(slot))return 1;saves_ready=0;return 0;}
   /* Allocation was fully validated at mount. Remap just this pair, following
@@ -581,16 +610,20 @@ int storage_select_save(unsigned slot) {
 int storage_read(unsigned file,unsigned sector,uint8_t *data) {
   if(!ready||file>STORAGE_SAVE_B||sector>=(file?SAVE_SECTORS:(story_bytes+511)/512)||
       (file&&!saves_ready))return 0;
+  if(file&&sidecar_pending){for(unsigned i=0;i<512;i++)data[i]=0;return 1;}
   unsigned offset=file?STORY_SECTORS+(file-1)*SAVE_SECTORS:0;
   return sd_read_sector(sector_map[offset+sector],data);
 }
 int storage_writable(uint32_t sector) {
   if(!ready||!saves_ready)return 0;
+  if(metadata_active)return sector==metadata_sector;
+  if(sidecar_pending)return 0;
   if(indexed_pool&&index_write_active&&sector==index_write_sector)return 1;
   for(unsigned i=STORY_SECTORS;i<MAP_SECTORS;i++)if(sector_map[i]==sector)return 1;return 0;
 }
 int storage_write(unsigned bank,unsigned sector,const uint8_t *data) {
   if(!ready||!saves_ready||bank>1||sector>=SAVE_SECTORS)return 0;
+  if(sidecar_pending&&!create_sidecar()){saves_ready=0;return 0;}
   if(indexed_pool&&!index_claimed&&!index_claim()){saves_ready=0;return 0;}
   return sd_write_sector(sector_map[STORY_SECTORS+bank*SAVE_SECTORS+sector],data);
 }

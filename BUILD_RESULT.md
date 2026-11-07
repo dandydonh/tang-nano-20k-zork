@@ -1,13 +1,145 @@
 # SDRAM V3/V5 loader: build and validation
 
-Updated 2026-11-06 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
+Updated 2026-11-07 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
 
 This build loads the selected V3 or V5 story into integrated SDRAM, supports the full
 16-bit writable-memory boundary, accepts legacy trailing file padding and uses
 larger streaming snapshots. Current source corrects screen/memory output-stream selection and adds player-selected save positions,
-with five per game by default and a compatible lossless legacy pool expansion. Up to 1,000 DAT/Z3/Z5 entries in `/ZORK` can be selected
+with five per game and automatic same-stem `.sav` creation. Up to 1,000 DAT/Z3/Z5 entries in `/ZORK` can be selected
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
+
+## v0.6.5 preview package
+
+The v0.6.5 preview packages the optimized automatic-save bitstream and the
+unchanged Madman V3 and Mars, 2049 AD V5 stories. Release assets are `zork.fs`,
+`madman.z3`, `mars2049ad.z5`, `STORY_NOTICES.md` and `SHA256SUMS`. The checksum
+file covers the bitstream, both stories and their notices. Both story binaries
+also remain in the tagged source under `story/` with their distribution terms.
+No SD image, save file, copyrighted Zork data or private test input is included.
+
+The bitstream is the exact sandbox-built image that passed persistent flash
+programming/readback on 2026-11-07. Its SHA-256 is
+`44be65544a6534f81250860846e5275791c495e472319d5ebf5be93ee0d1e2bd`.
+Native/fault/independent FAT checks and focused CPU save/reset/restore passed;
+physical optimized timing/restore/HDMI/power-cycle behavior remains unobserved.
+
+## Faster initial save, 2026-11-07
+
+First sidecar creation now writes only the four checked metadata sectors and
+all ten bank commit-header sectors, plus FAT/directory updates and the selected
+snapshot. Previously it zeroed every payload sector in the 1,312,768-byte file.
+Unused payload retains previous card contents; it is inaccessible as a snapshot
+until its payload is fully written and a checked header commits it. Directory
+extension clusters remain completely zeroed before linking. Save file format,
+size, five positions, two-bank recovery and existing sidecars are unchanged.
+
+Native bundled Mars R8/250121 first SAVE drops from **2,618 to 68 sector writes**
+(97.4% fewer); later SAVE stays at 29. Reset/restore in position five recovers
+score 1 and standing state. This is a write-count comparison, not measured
+physical speed. A new recycled-cluster test pre-populates valid snapshots for
+this same story in both banks of all five positions, deletes/recreates the
+file on the same chain, and verifies all old headers are invalidated. Corrupting
+the sole new snapshot cannot resurrect an old bank. Generic fixture first SAVE
+is 60 writes instead of 2,610; native/CPU test setup guards against >=100 writes.
+
+The entire FAT16/FAT32 sidecar suite passes, including independent filesystem
+checks, fragmented allocation, directory growth, read-only/full media, write
+bounds, metadata replicas, interrupted and torn writes. Existing FAT/indexed
+regressions pass. Logs: `impl/fast-save-native-tests.log`,
+`impl/fast-save-fat-regressions.log`, `impl/fast-save-indexed-regressions.log`,
+`impl/fast-save-mars-check.log`. Focused actual-CPU validation passes with
+no writes on play/cancel, first-save creation, fifth-position save/reset/restore,
+and no writes on RESTORE: **86,270,417 cycles / 164 reads / 60 writes**.
+The previous otherwise identical fixture used 323,667,958 cycles / 164 reads /
+2,610 writes. Simulation walltime is 85.069 seconds; this includes boot, menu
+interaction and reset/restore, not just SAVE latency. Evidence:
+`impl/auto-save-cpu.log`, `impl/fast-save-cpu-test.log`.
+The full processor suite was not rerun.
+
+Sandbox synthesis/place-route/timing pass with zero setup/hold violations.
+Firmware text/data/BSS: **44,404 / 28 / 11,012 bytes**; stack guard passes.
+Bitstream SHA-256:
+`44be65544a6534f81250860846e5275791c495e472319d5ebf5be93ee0d1e2bd`.
+Evidence: `impl/fast-save-build.log`, `impl/SHA256SUMS`.
+
+This optimized bitstream passed persistent flash programming/readback on
+2026-11-07 after explicit user request and successful manifest verification.
+Unchanged ./program_flash.sh used approved direct USB access, GW2AR-18C ID
+`0x0000081B`, cable 4/channel 0, flash `0x0B4017`, operation 9. Programmer:
+"SPI program and verify success!", exit 0, 30.02 seconds.
+Programmed SHA-256:
+`44be65544a6534f81250860846e5275791c495e472319d5ebf5be93ee0d1e2bd`.
+User confirmed faster subsequent saves and screenshots showed position five
+recognized as Saved on the previous build. Optimized physical initial timing,
+save/restore, HDMI and power-cycle behavior remain unobserved. Existing sidecars
+remain compatible; measuring first creation requires a new sidecar.
+No physical SD files, programming script, commit/push or release changed.
+
+## Automatic per-story saves, 2026-11-07
+
+Current source creates a same-stem `.sav` after the first confirmed SAVE.
+Each new file is 1,312,768 bytes: two indexed headers, two owner-record copies, five positions
+and two 128 KiB snapshot banks per position.
+
+Missing sidecar reads produce empty positions without writes; play, cancellation
+and absent RESTORE do not allocate. Allocation verifies free clusters and FAT
+mirrors, supports FAT16/FAT32 active/mirrored mode and fragmented free space,
+updates valid FSInfo copies to unknown hints, and grows the ZORK directory when
+needed. VFAT records and collision-free short aliases preserve full ASCII names.
+Non-ASCII stems and resulting names exceeding 255 units refuse save setup;
+existing foreign/malformed/read-only sidecars are preserved. Metadata permission
+is scoped to one synchronous sector write. The short directory entry publishes
+the initialized file last. Reported earlier errors trigger best-effort rollback.
+Power loss can leave orphan allocations, incomplete LFNs or mismatched mirrors;
+a torn publication can require filesystem repair. This is not a journaled FAT
+writer or a claim of universal creation atomicity.
+
+SDRAM creation scratch: cluster list at `0x300e0000..0x300e2817` and directory
+sector list at `0x300e4000..0x300e5fff`, disjoint from existing caches and VM.
+Firmware text/data/BSS: **44,368 / 28 / 11,012 bytes**; the stack guard passes.
+Sandbox synthesis/place-route/timing pass with zero setup/hold violations.
+Bitstream SHA-256:
+`475bb881c6b797a95db54b8d1877c53642638565a7910db0a6d90371c80323de`.
+Evidence: `impl/sidecar-build.log`, `impl/SHA256SUMS`.
+
+Native tests pass FAT16/FAT32 with MBR/superfloppy layouts, independent
+mkfs/mtools/fsck, V3/V5 reset/restore, five positions, 255-unit names, alias
+collisions, directory growth, 2,564 isolated free clusters, full/read-only cards,
+active FAT isolation, malformed/foreign metadata, snapshot fallback, 30 selected
+power-cut boundaries and 18 failed/torn writes, plus FAT32 FSInfo/backup and
+directory-growth tail-link interruption/error cases. The direct storage API test
+confirms metadata permission revocation and exactly 512 writable sectors for
+the selected snapshot pair. Filesystem checks are clean after normal operation
+and recoverable reported errors; abrupt allocation cuts deliberately expose
+FAT's documented repair limitations. Evidence: `impl/sidecar-native-tests.log`.
+The existing FAT regression passes; broader native checks pass (two optional
+private-story checks skip because their files are not in the working copy).
+Evidence: `impl/sidecar-fat-regressions.log`, `impl/sidecar-regressions.log`.
+Focused actual-CPU SPI/SDRAM simulation passes: play/cancel issue no writes,
+first SAVE creates the file, position five saves and restores after reset,
+and RESTORE writes nothing. The SPI model permits only the exact FAT/directory/
+new-file sectors observed in the independently checked native fixture.
+323,667,958 cycles / 164 reads / 2,610 writes; 347.918 seconds simulation walltime.
+Evidence: `impl/auto-save-cpu.log`, `impl/sidecar-cpu-test.log`.
+The full processor suite was not rerun.
+
+This automatic-save bitstream passed persistent flash programming/readback on
+2026-11-07 after explicit user request. All manifest hashes passed before the
+unchanged `./program_flash.sh` ran with approved direct USB access. Target:
+GW2AR-18C ID `0x0000081B`, cable 4/channel 0, flash `0x0B4017`, operation 9.
+The programmer reported "SPI program and verify success!", exit 0, 30.26 seconds.
+Programmed SHA-256:
+`475bb881c6b797a95db54b8d1877c53642638565a7910db0a6d90371c80323de`.
+Physical sidecar creation/save/restore, HDMI and power-cycle behavior for this
+exact build remain unobserved. No physical SD files, commit, push or release
+were changed. Sections below retain earlier-build evidence.
+
+## Historical build evidence
+
+The dated sections below retain earlier implementation and validation evidence.
+Current card usage consists of copying stories into `/ZORK`; the firmware creates
+`.sav` files automatically. Earlier storage-format details are not setup steps.
 
 ## Paged 1,000-entry story menu, 2026-11-06
 
@@ -61,68 +193,7 @@ and whitespace checks pass.
 This menu build passed persistent flash programming/readback on 2026-11-06:
 GW2AR-18C, cable 4/channel 0, operation 9, flash ID `0x0B4017`; programmer
 exit 0 in 30.01 seconds. Physical pagination/PS2/HDMI/save/power-cycle behavior
-for this exact build remains unobserved. The existing indexed SAVES.BIN format
-is unchanged; no SD card files were written.
-
-## Indexed 1,000-game save pool, 2026-11-06
-
-Current source adds indexed save pools with up to 1,000 identities and five
-positions per identity by default. The fresh default file is 1,310,785,536 bytes
-(1,250 MiB plus 64 KiB metadata). Two checked headers and redundant owner-index
-records precede adjacent per-owner pairs of unchanged 128 KiB snapshot banks.
-Ownership is committed before snapshot data; merely playing/cancelling is
-read-only. Damaged replicas recover from their counterpart; missing owner
-replication is repaired before new snapshot writes. Unknown damaged ownership
-blocks new claims, while identified existing owners can still restore.
-
-The full FAT allocation is validated once and cached as at most 4,096 extents;
-snapshot position selection then uses that cache. Owner lookup reads the compact
-index rather than every snapshot header. The sector map moves to SDRAM
-`0x30084000..0x300867ff`, owner flags start at `0x30094000`, and extents occupy
-`0x300a0000..0x300abfff`; all are outside the current menu table and VM buffers.
-Legacy eight/twenty-owner pools remain supported. No migration is provided, per
-the user's test-stage instructions. This backend build retained twenty menu
-entries; the paged build above expands selection to 1,000.
-
-`scripts/prepare_save_pool.py` creates exclusive fresh files without loading the
-pool into RAM. Capacity checks enforce the 32-bit file-size ceiling (at most
-sixteen positions for 1,000 owners). A fresh default staging file and checksum
-were generated in `impl/indexed-save-pool/` for validation and later removed
-during generated-artifact cleanup. Regenerate with `scripts/prepare_save_pool.py`
-when needed. Sparse staging occupied 4 KiB physically but required its full
-logical capacity when copied to FAT.
-
-New native regressions pass for FAT16/FAT32 pools, mixed V3/V5 snapshots, positions
-and identities, rename/reorder continuity, all 23 interrupted first-claim/save
-boundaries, redundant/corrupt metadata, ambiguous ownership, snapshot fallback,
-all 1,000 owner assignments and readback, final bank/sector bounds, and refusal
-of owner 1,001. Default-size mounting needs at most 447 sector reads in the
-32 KiB-cluster fixture, including FAT validation. Independent fsck.fat passes.
-Fragmented GiB pools work; excessive fragmentation safely disables writes.
-Evidence: `impl/indexed-save-tests.log`. All nine prior native programs pass
-(`impl/indexed-save-legacy-tests.log`).
-
-The build passes synthesis/place-route and zero setup/hold
-violations. Firmware text/data/BSS are 37,132 / 28 / 10,672 bytes. Evidence:
-`impl/indexed-save-build.log`. New bitstream SHA-256:
-
-```text
-cb6801a642f37c51f358ea7474faf5634e3a2a27bd4b276774b9fbd7346de81c
-```
-
-Focused actual-CPU validation passes: a default 1,000-owner/five-position pool,
-no owner claim during play, first indexed claim, fifth-position save, reset and
-restore. Result: 218,499,378 cycles / 977 reads / 23 writes (two index writes
-and twenty-one snapshot writes). The SPI model permits only those index
-sectors and the selected snapshot pair. Evidence: `impl/indexed-save-cpu.log`.
-No full processor-suite rerun. FPGA usage remains 3,118 logic units and 37/46
-BSRAMs. Manifest, shell syntax and whitespace checks pass.
-
-This bitstream passed persistent flash programming/readback on 2026-11-06:
-GW2AR-18C, cable 4/channel 0, operation 9, flash ID `0x0B4017`; programmer
-exit 0 in 30.52 seconds. The SD card was not changed; using the larger capacity
-requires copying the prepared indexed pool separately. Physical indexed-save,
-menu/play/HDMI and power-cycle behavior for this exact build remain unobserved.
+for this exact build remains unobserved; no SD card files were written.
 
 ## Full VFAT story filenames, 2026-11-06
 
@@ -167,7 +238,7 @@ saves and power-cycle behavior for this exact build remain unobserved.
 Current source skips invalid headers before counting menu slots, retains the
 alphabetically first twenty compatible DAT/Z3/Z5 files independently of copy
 order, and warns how many compatible files were omitted. A larger library no
-longer prevents startup. Discovery continues to find a later `SAVES.BIN`.
+longer prevents startup. Discovery continues through additional directory entries.
 Menu labels remain consecutive; one compatible story starts automatically.
 The save identity/pool format and twenty-owner save capacity are unchanged.
 
@@ -230,25 +301,13 @@ Physical three-extension discovery/play, HDMI, keyboard, SD save/restore and
 power-cycle behavior for this build remain unobserved. The dated release and
 hardware evidence below refers to earlier builds.
 
-## v0.5.0 prerelease package
+## v0.5.0 prerelease package (historical)
 
-The [v0.5.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.5.0) packages the dynamic V3/V5 build documented
-below. Its `zork.fs` is the same 93dfa647...268615 bitstream that passed flash
-programming/readback; no new synthesis or board programming is needed to
-publish this release.
-
-| Asset | Bytes | Purpose |
-| --- | ---: | --- |
-| `zork.fs` | 7,262,008 | Tang Nano 20K FPGA bitstream |
-| `SAVES.BIN` | 26,214,400 | All-zero 25 MiB pool: 20 story identities, 5 selectable positions each |
-| `SHA256SUMS` | 150 | SHA-256 checksums for the two assets |
-
-The blank pool is generated with `scripts/make_sd.py --prepare-saves` and
-verified to contain only zero bytes. Its SHA-256 is
-`394c345f0b0c63ee652627a62eed069244d35c4d5134e4f07d4eabb51afda47e`.
-Use it for fresh saves only; preserve or expand an existing pool to retain
-saved games. No game data or SD image is distributed. Tag `v0.5.0` identifies
-the matching source, including the serial launcher and current usage examples.
+The [v0.5.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.5.0)
+packages the earlier dynamic V3/V5 build, bitstream `93dfa647...268615`.
+This section records publication history. Current card usage is documented in
+[automatic per-story saves](README.md#automatic-per-story-saves); copy stories
+into `/ZORK` and the current firmware creates their save files automatically.
 
 ## Dynamic V3 serial layout, 2026-11-05
 
@@ -440,30 +499,16 @@ and actual power-cycle persistence of this build remain unobserved. No physical
 SD card writes occurred. This current status supersedes historical
 board-state statements below.
 
-## Deliverables and SD preparation
+## Deliverables and card contents
 
-- `impl/pnr/zork.fs`, SHA-256:
-  `d0bb5fccbbe331262fac20bcabb25abb8b41739e10f83fab929af1d99dbac705`.
+- `impl/pnr/zork.fs`: FPGA bitstream; the newest build/hash is recorded above.
 - `assets/firmware.hex`, with ELF/bin/map under `impl/firmware/`.
-- Blank standalone pool: `impl/selectable-save-files/ZORK/SAVES.BIN`, exactly
-  **26214400 bytes (25 MiB)**, five player positions for twenty games. Use only
-  for fresh saves; expand a copy of an existing ZMV5 pool to preserve wanted
-  positions. Copy with the board powered off after keeping the original backup.
-- Earlier example image (2 MiB pool; not regenerated by this change): `assets/v3-sdram-fat.img`, FAT32 MBR, 65 MiB total.
-  It contains only the local Zork I story and an eight-identity pool. It is ignored by
-  Git, excluded from distribution and does not contain the private test files.
-- `python3 scripts/make_sd.py --directory CARD_ROOT --prepare-saves` creates
-  only a missing pool. Existing files are never overwritten. Repeated `--story`
-  options support fresh staging/image preparation; see `README.md`.
+- A FAT16/FAT32 card containing compatible `.DAT`, `.Z3` or `.Z5` stories in
+  `/ZORK`. The first confirmed SAVE creates a matching `.sav` beside each story,
+  with five positions and two-bank recovery. No PC save-file preparation is needed.
 
-Existing 512 KiB `SAVES.BIN` and SAVEA/SAVEB files are not compatible with the
-new format and are left untouched. Existing 2 MiB ZMV5 pools retain eight identities; `--expand-saves OLD --output NEW`
-preserves all bytes at their original offsets, fills unused story identities,
-and appends player positions. It accepts existing 2/5 MiB and smaller multi-slot
-pools. Default output is 25 MiB (five positions); `--save-slots N` allows 1..20.
-Old saves become position 1. Back up wanted saves first.
-The earlier fixed-Zork FAT implementation remains in Git history at commit
-`6f96dd45076c67c76cbed89b3a07ecbfc7d37dc5`.
+Keep the card inserted during play. Back up wanted `.sav` files with the board
+powered off. See the main README for automatic-save behavior and validation limits.
 
 ## Memory and SDRAM controller
 
@@ -513,10 +558,10 @@ headers use actual EOF, which must fit that limit. The loader follows and
 protects the entire physical chain, including padding, while executing only
 the logical image. Unsupported versions and invalid layouts are rejected.
 
-A default 25 MiB preallocated pool contains five positions for each of twenty
-story identities. Each position has two 128 KiB banks. The first 5 MiB plane
-retains the original single-position layout; later planes append positions
-without moving old bytes. Existing 2/5 MiB pools work without a slot prompt.
+The current per-story `.sav` has five positions with two 128 KiB snapshot banks
+each. Metadata and every bank header are initialized on first creation; payload
+sectors are written when saved. The following snapshot details retain the
+validation history of the earlier streaming implementation.
 `ZMV5` snapshots
 stream actual dynamic bytes plus interpreter stack/frames through one 512-byte
 buffer. A compile-time bound ensures maximum state fits. Payload checksums are
@@ -619,8 +664,7 @@ terminal. It preserves normal word boundaries, splits overlong words without
 losing bytes and flushes incomplete prompt words before input/status operations.
 Input echo stays immediate. Erasing a wrapped input uses matching serial cursor
 motion and HDMI row/column changes. Status updates bypass transcript wrapping.
-No terminal settings, story data, SDRAM RTL or save format changed; existing
-2 MiB ZMV5 pools remain compatible.
+No terminal settings, story data, SDRAM RTL or save format changed.
 
 Focused formatter tests pass with autowrap disabled/enabled at 80/100/132/180
 columns, long words, exact boundaries, explicit/blank lines, indentation, prompt
@@ -692,11 +736,6 @@ unverified. No physical card writes, programmer changes or release updates.
 Menu discovery and persistent ownership now each support 20 entries. Decimal
 labels and two-digit editing work through shared UART/PS/2 input. The image
 builder allocates directory chains for the expanded list and rejects full images.
-New pools have twenty pairs of unchanged ZMV5 banks (5 MiB). Existing 2 MiB pools
-retain their eight slots; the host expansion command copies all bytes into a new
-file and appends twelve empty slots. It refuses existing destinations and unknown
-bank headers. No snapshot conversion or on-board allocation occurs.
-
 Synthesis/place/route and setup/hold checks pass. Native FAT16/FAT32 fragmented
 storage, independent formatter tests and all 40 Zork save interruptions pass.
 All 20 choices and save identities pass FAT16/FAT32 native tests, including
@@ -770,8 +809,8 @@ entry 19; it does not validate expanded saves, HDMI or PS/2 on this build.
 
 The selectable-save and output-stream build is distributed as the
 [v0.4.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.4.0),
-with `zork.fs`, a blank 25 MiB `SAVES.BIN`, and `SHA256SUMS` covering both.
-The pool is for fresh saves only; expand a backup to preserve existing saves.
+with its bitstream and checksums. Current usage is the automatic `.sav` workflow
+in the main README.
 This is the exact tested and
 flash/readback-verified bitstream identified above. Previous release pages and
 assets and tags are removed at the user's request. Only v0.4.0 remains.

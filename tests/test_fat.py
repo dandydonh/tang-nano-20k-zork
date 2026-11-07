@@ -154,7 +154,6 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         candidate = FatImage(valid.data)
         fn(candidate)
         pool_cases.append((label, candidate.data))
-    pool_mutation('missing pool', lambda x: x.data.__setitem__(x.file_entry('SAVES.BIN'), 0xe5))
     pool_mutation('wrong pool size', lambda x: struct.pack_into('<I', x.data, x.file_entry('SAVES.BIN')+28, 123))
     pool_mutation('read-only pool', lambda x: x.data.__setitem__(x.file_entry('SAVES.BIN')+11, 0x21))
     pool_mutation('truncated pool chain', lambda x: x.set_next(x.entry_cluster(x.file_entry('SAVES.BIN')), x.eoc))
@@ -168,7 +167,7 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         command([ROOT/'impl/storage-test', image], expected=3)
         assert image.read_bytes() == damaged, label
         assert 'Saves disabled' in play(image, 'save\n')
-    print('PASS missing/malformed/read-only save pools allow play with all writes disabled')
+    print('PASS malformed/read-only save pools allow play with all writes disabled')
     mutation('directory overlap', lambda x: x.set_next(x.entry_cluster(x.entry('ZORK')), x.entry_cluster(x.file_entry('SAVES.BIN'))))
     mutation('directory loop', lambda x: x.set_next(x.entry_cluster(x.entry('ZORK')), x.entry_cluster(x.entry('ZORK'))))
     mutation('invalid cluster size', lambda x: x.data.__setitem__(13, 3))

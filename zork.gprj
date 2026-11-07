@@ -21,6 +21,7 @@
 <File path="assets/font.hex" type="file.other" enable="0"/>
 <File path="assets/text_blank.hex" type="file.other" enable="0"/>
 <File path="firmware/storage.c" type="file.other" enable="0"/>
+<File path="firmware/storage_create.inc" type="file.other" enable="0"/>
 <File path="firmware/storage.h" type="file.other" enable="0"/>
 <File path="firmware/platform.c" type="file.other" enable="0"/>
 <File path="firmware/screen.c" type="file.other" enable="0"/>

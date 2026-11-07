@@ -35,22 +35,15 @@ Mars uses the V5 display: use a serial terminal at
 least 80 columns by 32 rows. Its opening waits for a key; press Space before
 entering commands.
 
-For saves, follow [one-time save preparation](../README.md#one-time-save-preparation).
-An existing compatible `ZORK/SAVES.BIN` can be shared by both games. The new
-indexed format supports up to 1,000 game identities with five positions each by
-default; it requires the new indexed-pool firmware. See the main instructions
-for creating a fresh pool. The older `make_sd.py --prepare-saves` command below
-creates a legacy twenty-game pool, which remains supported.
+The first confirmed SAVE creates
+`madman.sav` or `mars2049ad.sav` beside the story, with five positions per game.
+No PC save preparation is needed. See [automatic per-story saves](../README.md#automatic-per-story-saves)
+for naming limits and power-loss behavior. The automatic-save firmware passed
+persistent flash programming/readback on 2026-11-07; physical save/restore and
+power-cycle behavior for this exact build remain to be observed.
 
-To prepare a fresh staging folder instead, use the copy commands above with a
-local folder as the card path, then create its missing save pool:
-
-```bash
-python3 scripts/make_sd.py --directory /path/to/staging --prepare-saves
-```
-
-Copy the staged `ZORK` folder to a fresh card, preserving the original story
-filenames and extensions.
+Keep each `.sav` alongside its story. Back it up with the board powered off;
+no save-file download, generation or expansion step is needed.
 
 ## Credits and distribution notices
 
