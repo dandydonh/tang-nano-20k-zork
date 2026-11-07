@@ -1,6 +1,8 @@
 impl/
 *.gprj.user
 __pycache__/
+*.[sS][aA][vV]
+[sS][aA][vV][eE]*.[bB][iI][nN]
 
 /zork1.dat
 /assets/*.img

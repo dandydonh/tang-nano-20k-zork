@@ -11,6 +11,7 @@ SAVE_SLOTS = 20
 POOL_SIZE = SAVE_SLOTS * 2 * SAVE_SIZE
 DEFAULT_GAME_SLOTS = 5
 MAX_GAME_SLOTS = 20
+MAX_STORIES = 1000
 
 
 def validate_story(story):
@@ -156,7 +157,7 @@ def make_image(files, fat=32, size_mib=None, partitioned=True):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--story', type=Path, action='append', help='V3/V5 story path; repeat for up to 20 stories (default zork1.dat)')
+    parser.add_argument('--story', type=Path, action='append', help='V3/V5 .dat/.z3/.z5 story path with an 8-character maximum stem; repeat for up to 1000 stories (default zork1.dat)')
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument('--output', type=Path, help='New image file (default assets/v3-sdram-fat.img)')
     parser.add_argument('--expand-saves', type=Path, help='Expand a copy of an existing ZMV5/ZMV6 pool, preserving every original byte; requires --output')
@@ -194,13 +195,13 @@ def main():
             files = [('SAVES.BIN', bytes(pool_size))]
         else:
             paths = args.story or [ROOT/'zork1.dat']
-            if len(paths) > SAVE_SLOTS:
-                parser.error('At most 20 stories can be prepared')
+            if len(paths) > MAX_STORIES:
+                parser.error('At most 1000 stories can be prepared')
             files = []
             for path in paths:
                 name = path.name.upper()
-                if not re.fullmatch(r'[A-Z0-9_~\-]{1,8}\.DAT', name):
-                    parser.error('Use a short story filename such as ZORK2.DAT (up to 8 characters before .DAT)')
+                if not re.fullmatch(r'[A-Z0-9_~\-]{1,8}\.(?:DAT|Z3|Z5)', name):
+                    parser.error('Use a short story filename with .DAT, .Z3 or .Z5 (up to 8 characters before the extension)')
                 if name in [item[0] for item in files]:
                     parser.error(f'Duplicate story name: {name}')
                 data = path.read_bytes()
@@ -220,7 +221,7 @@ def main():
             for name, data in files:
                 with (target/name).open('xb') as stream:
                     stream.write(data)
-            print(f'{target}: {len(files)} files; {pool_size}-byte save pool, {SAVE_SLOTS} stories, {args.save_slots} saves per game')
+            print(f'{target}: {len(files)} files; {pool_size}-byte legacy save pool, {SAVE_SLOTS} save owners, {args.save_slots} saves per game')
         else:
             output = args.output if args.output is not None else ROOT/'assets/v3-sdram-fat.img'
             # Exclusive creation also refuses devices and existing images.
@@ -236,7 +237,7 @@ def main():
                 stream.write(image)
             print(f'{output}: {len(image)} bytes; FAT{args.fat}')
         for name, data in files:
-            if name.endswith('.DAT'): print(f'{name} SHA256 {hashlib.sha256(data).hexdigest()}')
+            if name.endswith(('.DAT', '.Z3', '.Z5')): print(f'{name} SHA256 {hashlib.sha256(data).hexdigest()}')
     except (OSError, ValueError) as error:
         parser.exit(1, f'{error}\n')
 

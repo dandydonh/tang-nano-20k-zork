@@ -1,13 +1,234 @@
 # SDRAM V3/V5 loader: build and validation
 
-Updated 2026-11-05 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
+Updated 2026-11-06 for Tang Nano 20K, GW2AR-LV18QN88C8/I7, revision C.
 
 This build loads the selected V3 or V5 story into integrated SDRAM, supports the full
 16-bit writable-memory boundary, accepts legacy trailing file padding and uses
 larger streaming snapshots. Current source corrects screen/memory output-stream selection and adds player-selected save positions,
-with five per game by default and a compatible lossless pool expansion. Up to 20 DAT entries in `/ZORK` can be selected
+with five per game by default and a compatible lossless legacy pool expansion. Up to 1,000 DAT/Z3/Z5 entries in `/ZORK` can be selected
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
+
+## Paged 1,000-entry story menu, 2026-11-06
+
+Current source discovers up to 1,000 compatible DAT/Z3/Z5 stories, sorted by
+full displayed filename. A max heap retains the first thousand during overflow;
+an index-only heapsort avoids quadratic copying of long-name records. Invalid
+headers do not consume slots and later save-pool entries remain discoverable.
+
+Global selections 1–1,000 work from every page, with four-digit input/editing.
+N/P followed by Enter navigates pages without wrapping at either end. Pages
+hold at most twenty entries, reduced to account for detected terminal height
+and wrapped names within the 32-row HDMI display. Page redraw clears both sinks.
+One compatible story still autostarts; a catalog fitting one page retains the
+simple existing flow. More than 1,000 compatible stories produce an omission
+warning without preventing startup.
+
+The full-name table moves to `0x30100000..0x3014555f` (284,000 bytes); page starts
+and sorted indexes use `0x300c0000` and `0x300c1000`. Directory protection uses
+`0x300d0000..0x300d7fff`. These are disjoint from VM, undo, sector map, owner
+flags and indexed-pool extents. Directory traversal supports 2,048 sectors and
+4,096 protected extents, covering a thousand maximum-length VFAT filenames.
+The host preparation CLI accepts up to a thousand short-named stories; legacy
+save-owner sizing remains separate from story capacity.
+
+New native tests pass on FAT16/FAT32 for all 1,000 candidates, alphabetical
+copy-order independence, all fifty normal-height pages, direct selection 1000,
+editing/overflow/backspace/arrow handling, N/P boundaries, shorter terminals,
+over-capacity warnings and save/reset/restore isolation. An independent mtools
+library of 1,000 names of 255 characters passes discovery, wrapped-row page
+bounds and fsck.fat. Evidence: `impl/paged-menu-tests.log`. All twelve broader
+native programs pass (`impl/paged-menu-native-tests.log`), including indexed
+saves, legacy storage, VFAT, gameplay and output/paging checks.
+
+The build passes synthesis, place/route and zero setup/hold
+violations. Firmware text/data/BSS are 38,688 / 28 / 10,416 bytes; FPGA usage
+remains 3,118 logic units and 37/46 BSRAMs. Build log:
+`impl/paged-menu-build.log`. Bitstream SHA-256:
+
+```text
+a0e48b1a045991c0666c3ba7a4447e6cbefb0cb9aa09e3074ef4f5f0a8da3fe7
+```
+
+Focused actual-CPU integration passes: 1,000 independently allocated FAT32
+stories in reverse copy order, UART N/P page navigation, PS/2 selection 1000,
+correct last-story execution, and indexed owner claim/save/restore. Result:
+277,807,403 cycles / 1,753 reads / 23 writes, with only the owner-index sectors
+and selected snapshot pair writable in the SPI model. Evidence:
+`impl/paged-menu-cpu.log`. No full processor-suite rerun. Manifest, shell syntax
+and whitespace checks pass.
+
+This menu build passed persistent flash programming/readback on 2026-11-06:
+GW2AR-18C, cable 4/channel 0, operation 9, flash ID `0x0B4017`; programmer
+exit 0 in 30.01 seconds. Physical pagination/PS2/HDMI/save/power-cycle behavior
+for this exact build remains unobserved. The existing indexed SAVES.BIN format
+is unchanged; no SD card files were written.
+
+## Indexed 1,000-game save pool, 2026-11-06
+
+Current source adds indexed save pools with up to 1,000 identities and five
+positions per identity by default. The fresh default file is 1,310,785,536 bytes
+(1,250 MiB plus 64 KiB metadata). Two checked headers and redundant owner-index
+records precede adjacent per-owner pairs of unchanged 128 KiB snapshot banks.
+Ownership is committed before snapshot data; merely playing/cancelling is
+read-only. Damaged replicas recover from their counterpart; missing owner
+replication is repaired before new snapshot writes. Unknown damaged ownership
+blocks new claims, while identified existing owners can still restore.
+
+The full FAT allocation is validated once and cached as at most 4,096 extents;
+snapshot position selection then uses that cache. Owner lookup reads the compact
+index rather than every snapshot header. The sector map moves to SDRAM
+`0x30084000..0x300867ff`, owner flags start at `0x30094000`, and extents occupy
+`0x300a0000..0x300abfff`; all are outside the current menu table and VM buffers.
+Legacy eight/twenty-owner pools remain supported. No migration is provided, per
+the user's test-stage instructions. This backend build retained twenty menu
+entries; the paged build above expands selection to 1,000.
+
+`scripts/prepare_save_pool.py` creates exclusive fresh files without loading the
+pool into RAM. Capacity checks enforce the 32-bit file-size ceiling (at most
+sixteen positions for 1,000 owners). A fresh default staging file and checksum
+were generated in `impl/indexed-save-pool/` for validation and later removed
+during generated-artifact cleanup. Regenerate with `scripts/prepare_save_pool.py`
+when needed. Sparse staging occupied 4 KiB physically but required its full
+logical capacity when copied to FAT.
+
+New native regressions pass for FAT16/FAT32 pools, mixed V3/V5 snapshots, positions
+and identities, rename/reorder continuity, all 23 interrupted first-claim/save
+boundaries, redundant/corrupt metadata, ambiguous ownership, snapshot fallback,
+all 1,000 owner assignments and readback, final bank/sector bounds, and refusal
+of owner 1,001. Default-size mounting needs at most 447 sector reads in the
+32 KiB-cluster fixture, including FAT validation. Independent fsck.fat passes.
+Fragmented GiB pools work; excessive fragmentation safely disables writes.
+Evidence: `impl/indexed-save-tests.log`. All nine prior native programs pass
+(`impl/indexed-save-legacy-tests.log`).
+
+The build passes synthesis/place-route and zero setup/hold
+violations. Firmware text/data/BSS are 37,132 / 28 / 10,672 bytes. Evidence:
+`impl/indexed-save-build.log`. New bitstream SHA-256:
+
+```text
+cb6801a642f37c51f358ea7474faf5634e3a2a27bd4b276774b9fbd7346de81c
+```
+
+Focused actual-CPU validation passes: a default 1,000-owner/five-position pool,
+no owner claim during play, first indexed claim, fifth-position save, reset and
+restore. Result: 218,499,378 cycles / 977 reads / 23 writes (two index writes
+and twenty-one snapshot writes). The SPI model permits only those index
+sectors and the selected snapshot pair. Evidence: `impl/indexed-save-cpu.log`.
+No full processor-suite rerun. FPGA usage remains 3,118 logic units and 37/46
+BSRAMs. Manifest, shell syntax and whitespace checks pass.
+
+This bitstream passed persistent flash programming/readback on 2026-11-06:
+GW2AR-18C, cable 4/channel 0, operation 9, flash ID `0x0B4017`; programmer
+exit 0 in 30.52 seconds. The SD card was not changed; using the larger capacity
+requires copying the prepared indexed pool separately. Physical indexed-save,
+menu/play/HDMI and power-cycle behavior for this exact build remain unobserved.
+
+## Full VFAT story filenames, 2026-11-06
+
+Current source reconstructs and validates VFAT long filenames across directory
+sectors/clusters, displays up to 255 characters in the menu/startup/save menus,
+and sorts the retained twenty compatible stories by display name. Short aliases
+break sorting ties and remain the fallback for missing or invalid long-name
+records. Unsupported non-ASCII characters display as `?`; V3's fixed status row
+can clip long names. File allocation and save identity are unchanged.
+
+Twenty 284-byte candidates occupy SDRAM `0x30081000..0x3008262f`, after the
+save-header index and outside story/dynamic/undo storage. This preserves the
+8 KiB native-stack reservation. New native FAT16/FAT32 tests cover fragmented
+directories, crossing sectors/clusters, 13/26/255-unit names, corruption fallback,
+Unicode substitution, display-name ordering/overflow, V3/V5 and save identity.
+Independent mkfs.fat/mtools names pass, as do all eight prior native storage
+regression programs. Logs: `impl/long-filename-native-tests.log`.
+
+The FPGA build passes with zero setup/hold violations. Firmware text/data/BSS
+are 34,320 / 28 / 20,880 bytes; FPGA usage remains 3,118 logic units and 37/46
+BSRAMs. Build log: `impl/long-filename-build.log`; all manifest hashes pass.
+Bitstream SHA-256:
+
+```text
+6d59a70ace081632e412f968c3ba83494ca9011e67f1fc6d54f701e5a3844389
+```
+
+The focused actual-CPU simulation passes in 54,450,350 cycles: genuine VFAT
+records for twenty-one stories, SDRAM table/sorting/overflow, selecting the
+twentieth entry, reset, and selecting a 255-character first name. The card
+receives no writes. Evidence: `impl/long-filename-cpu.log`. A separate native
+check selects the supplied `mars2049ad.z5` under its full name and reaches HELP
+(`impl/long-filename-bundled-story.log`). No full processor-suite rerun.
+
+This bitstream passed persistent flash programming/readback on 2026-11-06:
+GW2AR-18C, cable 4/channel 0, operation 9, flash ID `0x0B4017`; programmer
+exit 0 in 30.03 seconds. Physical full-name menu/play, HDMI, physical SD
+saves and power-cycle behavior for this exact build remain unobserved.
+
+## Graceful story-library overflow, 2026-11-06
+
+Current source skips invalid headers before counting menu slots, retains the
+alphabetically first twenty compatible DAT/Z3/Z5 files independently of copy
+order, and warns how many compatible files were omitted. A larger library no
+longer prevents startup. Discovery continues to find a later `SAVES.BIN`.
+Menu labels remain consecutive; one compatible story starts automatically.
+The save identity/pool format and twenty-owner save capacity are unchanged.
+
+New native FAT16/FAT32 regressions pass for overflow, invalid files before and
+after valid files, reversed copy order, all three extensions, V5 execution,
+save/reset/restore with a late save pool, unchanged story allocations, and
+single/empty/all-invalid libraries. Existing V3/V5, FAT, save-slot, gameplay,
+boot-menu and extension native regressions all pass. Evidence:
+`impl/story-overflow-native-tests.log`. No new RTL or full processor regression
+run was performed for this firmware-only change.
+
+`./build.sh` passes synthesis, place/route and timing with zero setup/hold
+violations. Firmware text/data/BSS are
+33,732 / 28 / 21,440 bytes; FPGA usage remains 3,118 logic units and 37/46
+BSRAMs. Evidence: `impl/story-overflow-build.log`; manifest checks pass.
+Bitstream SHA-256:
+
+```text
+eff751ffc0729c395134070476b3f0dc6ce1328306baf326d3dd3e21329aa4f2
+```
+
+This build passed persistent flash programming/readback on 2026-11-06 using
+the unchanged script: GW2AR-18C, cable 4/channel 0, operation 9, flash ID
+`0x0B4017`; programmer exit 0 in 30.36 seconds. Physical overflow menu/play,
+HDMI, SD save/restore and power-cycle checks remain pending.
+
+## DAT/Z3/Z5 discovery build, 2026-11-06
+
+Current source discovers `.dat`, `.z3` and `.z5` files in `/ZORK`, with
+case-insensitive extension matching and one combined twenty-story limit.
+Two-character extensions display without FAT padding. Header validation still
+determines whether a file is a supported V3/V5 story. The SD preparation tool
+accepts all three extensions with its existing maximum eight-character stem.
+Story identities and save-pool formats are unchanged, so changing an extension
+preserves saves. The published v0.5.0 bitstream remains DAT-only.
+
+`./build.sh` passes synthesis, place/route and timing, with **zero setup and hold
+violations**. Firmware text/data/BSS are 33,712 / 28 / 21,516 bytes; FPGA usage is
+3,118 logic units and 37/46 BSRAMs. Build log:
+`impl/story-extensions-build.log`. Bitstream SHA-256:
+
+```text
+cdcc59984b2658048c22c728b5698503279b61737ba2d24ac4e70b305d5433c1
+```
+
+New native regressions cover mixed DAT/Z3/Z5 menus on FAT16/FAT32, V3/V5
+execution, saves and restore after extension renaming, unchanged story bytes,
+case handling, unsupported suffixes, invalid headers, the combined file limit
+and CLI staging. Existing native V3/V5, FAT and save-slot regressions pass.
+Both bundled stories reach their openings under their Z3/Z5 extensions in the
+host interpreter. SDRAM, peripheral, video and TMDS simulations pass, as do
+the SDHC and SDSC processor cases for boot, gameplay, saves and reset restore.
+The longer full processor suite was stopped after those two cases; its remaining
+cases and final CPU paging/resize checks were not completed for this build.
+
+This bitstream passed **persistent flash programming and readback verification**
+on 2026-11-06 using the unchanged programming script: GW2AR-18C, cable 4/channel
+0, operation 9, flash ID `0x0B4017`; programmer exit 0 in 30.15 seconds.
+Physical three-extension discovery/play, HDMI, keyboard, SD save/restore and
+power-cycle behavior for this build remain unobserved. The dated release and
+hardware evidence below refers to earlier builds.
 
 ## v0.5.0 prerelease package
 

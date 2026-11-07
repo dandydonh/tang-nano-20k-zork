@@ -18,6 +18,10 @@ material. Obtain the game data separately with the appropriate permissions.
 
 Other third-party material
 --------------------------
+The bundled story/madman.z3 and story/mars2049ad.z5 game files are third-party
+material, excluded from this project's Apache License. They retain their own
+copyright and distribution terms; see story/README.md and their in-game notices.
+
 Third-party code and assets retain their respective licenses and copyright
 notices. In particular, third_party/picorv32.v is covered by the ISC license
 in third_party/PICORV32_COPYING. DejaVu-derived font data, including

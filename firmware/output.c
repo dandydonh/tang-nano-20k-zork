@@ -5,6 +5,9 @@ static char word[CONSOLE_COLUMNS];
 static unsigned page_height,page_lines;
 void console_page_height(unsigned rows) { page_height=rows;page_lines=0; }
 void console_page_reset(void) { page_lines=0; }
+unsigned console_menu_rows(void) { return page_height&&page_height<32?page_height:32; }
+unsigned console_menu_columns(void) { return serial_width<CONSOLE_COLUMNS?serial_width:CONSOLE_COLUMNS; }
+void console_menu_reset(void) { column=serial_column=word_length=word_continued=page_lines=0; }
 void console_width(unsigned columns) {
   if(columns<7||columns>998)return;
   serial_width=columns;

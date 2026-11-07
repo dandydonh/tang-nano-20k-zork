@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='zork-boot-menu-') as directory:
     prepare([])
     before=image.read_bytes()
     output=boot('',expected=2)
-    assert 'No compatible V3/V5 DAT stories in /ZORK.' in output
+    assert 'No compatible V3/V5 stories (.DAT/.Z3/.Z5) in /ZORK.' in output
     assert 'CAVERN.DAT' not in output and image.read_bytes()==before
 
 print('PASS boot-time SD discovery: added/removed/replaced stories, alphabetical repopulation, single-story startup, retained saves and empty directory')

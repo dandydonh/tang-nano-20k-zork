@@ -7,6 +7,7 @@ static FILE *disk;
 static long cut_after=-1,writes;
 void platform_init(void){const char *p=getenv("ZORK_SD_IMAGE");disk=fopen(p?p:"assets/zork-fat.img","r+b");if(!disk){perror("SD image");exit(1);}const char *cut=getenv("ZORK_CUT_AFTER_WRITES");if(cut)cut_after=strtol(cut,NULL,10);setbuf(stdout,NULL);const char *cols=getenv("ZORK_TERM_COLUMNS");if(cols)console_width(strtoul(cols,NULL,10)-1);const char *rows=getenv("ZORK_PAGE_ROWS");if(rows)console_page_height(strtoul(rows,NULL,10));}
 void console_serial_emit(int c){putchar(c);}
+void console_clear(void){fputs("\033[0m\033[2J\033[2;1H",stdout);}
 void console_emit(int c){(void)c;}
 int console_previous_line(void){return 1;}
 void console_serial_previous(unsigned width){printf("\033[1A\033[%uC",width-1);}

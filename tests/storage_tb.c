@@ -18,6 +18,11 @@ int sd_write_sector(uint32_t sector, const uint8_t *data) {
   assert(storage_writable(sector));last_write=sector;writes++;return 1;
 }
 void console_put(int c){(void)c;}
+unsigned console_menu_rows(void){return 32;}
+unsigned console_menu_columns(void){return 79;}
+void console_menu_reset(void){}
+void console_clear(void){}
+void console_page_reset(void){}
 int console_get(void){abort();}
 int main(int argc, char **argv) {
   assert(argc==2 || argc==3);

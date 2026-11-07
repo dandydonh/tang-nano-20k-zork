@@ -484,7 +484,7 @@ static void execute(void) {
 }
 int main(void) {
   platform_init();say("SD story and persistent SAVE / RESTORE\n\n");
-  if(!storage_init())fatal("requires FAT16/FAT32 and a compatible V3/V5 DAT in /ZORK");
+  if(!storage_init())fatal("requires FAT16/FAT32 and a compatible V3/V5 story (.DAT/.Z3/.Z5) in /ZORK");
   for(unsigned off=0;off<storage_story_size();off+=512) {
     if(!storage_read(STORAGE_STORY,off/512,sector_buf))fatal("SD story read");
     unsigned n=storage_story_size()-off;if(n>512)n=512;

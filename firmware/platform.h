@@ -16,6 +16,10 @@ void console_story_flush(void);
  * disables paging for noninteractive native tests. */
 void console_page_height(unsigned rows);
 void console_page_reset(void);
+unsigned console_menu_rows(void);
+unsigned console_menu_columns(void);
+void console_menu_reset(void);
+void console_clear(void);
 void console_page(unsigned top);
 void console_more(void);
 /* HDMI backend: emit one unwrapped character or move to the previous

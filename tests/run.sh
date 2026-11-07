@@ -33,7 +33,12 @@ python3 tests/test_v5_stories.py
 python3 tests/test_v5_io.py
 python3 tests/test_v5_display.py
 python3 tests/test_save_slots.py
+python3 tests/test_indexed_saves.py
 python3 tests/test_boot_menu.py
+python3 tests/test_story_extensions.py
+python3 tests/test_story_overflow.py
+python3 tests/test_paged_menu.py
+python3 tests/test_long_filenames.py
 python3 tests/test_local_stories.py
 python3 tests/test_planetfall.py
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s sdram_tb -o impl/tests/sdram \
@@ -152,3 +157,6 @@ python3 tests/test_v5_display.py impl/soc-v5.log
 python3 tests/test_paging_cpu.py
 
 python3 tests/test_dynamic_cpu.py
+python3 tests/test_long_filename_cpu.py
+python3 tests/test_indexed_save_cpu.py
+python3 tests/test_paged_menu_cpu.py

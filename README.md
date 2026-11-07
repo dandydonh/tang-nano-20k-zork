@@ -6,15 +6,25 @@
 A standalone Z-machine V3/V5 story player for the Sipeed Tang Nano 20K
 (GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
 interpreter on the FPGA; no operating system or external computer runs the game.
-Compatible `.dat` files can be copied onto a FAT16/FAT32 microSD card.
-Story data is not included. The supplied local Zork I file is used for regression
-validation; this is a bounded interpreter, not universal story compatibility.
+Compatible `.dat`, `.z3` and `.z5` files can be copied onto a FAT16/FAT32 microSD card.
+Two redistributable examples, **Madman (V3)** and **Mars, 2049 AD (V5)**, are
+included in [`story/`](story/README.md), with SD card setup instructions and
+third-party notices. Zork story data is not included. The local Zork I file is
+used for regression validation; this is a bounded interpreter, not universal story compatibility.
+
+Current source supports up to **1,000 stories** with a paged menu and an indexed
+save pool for up to 1,000 game identities. The published v0.5.0 download retains
+its earlier twenty-story menu and legacy save format.
+Automatic per-story `.sav` creation is not implemented yet; current builds use
+`SAVES.BIN`.
 
 The v0.5.0 prerelease supports V3 and V5 stories. Tested V5 editions include
 Hitchhiker's Guide (release 31) and Beyond Zork (release 57); supply your own
 story files. It also includes MORE paging and terminal-aware V3 serial output.
 V5 games draw their own status, menus and split windows across a fixed
-79-column by 32-row screen. Use a serial terminal at least 80 columns by 32 rows.
+79-column by 32-row screen. Use a serial terminal with at least 80 columns and
+32 usable game rows. With Minicom's status bar enabled, allow at least **33
+terminal rows**; extra width does not compensate for insufficient height.
 V3 keeps its header and adapts serial text to the detected terminal size.
 See compatibility limits below.
 
@@ -71,6 +81,7 @@ play, launcher resize retention, HDMI/PS2, SD saves and power-cycle behavior for
 this build still need observation.
 
 The original project code is licensed under Apache 2.0; see [LICENSE](LICENSE).
+The bundled stories retain their own terms; see [story/README.md](story/README.md).
 Zork story data (`zork1.dat` and copies in SD images) is copyrighted third-party
 material and is excluded from that license. Other third-party components retain
 their own licenses; see [third_party/README.md](third_party/README.md).
@@ -101,8 +112,8 @@ at full size. Scroll horizontally above to view the play example at its original
 size.
 
 1. Prepare a FAT16/FAT32 card with a `ZORK` directory containing compatible
-   `.DAT` stories and, for persistent saves, the preallocated `SAVES.BIN` described
-   below. Existing unrelated files can remain on the card.
+   `.DAT`, `.Z3` or `.Z5` stories and, for persistent saves, the preallocated
+   `SAVES.BIN` described below. Existing unrelated files can remain on the card.
 2. Insert the card into the board's microSD slot. Leave it inserted during play.
 3. For HDMI output, connect a display accepting 1280x720 at 60 Hz. If using
    serial I/O, no HDMI connection or display is required.
@@ -239,17 +250,50 @@ before any reformatting.
 
 ### Drop in a story
 
-With the board powered off, copy a compatible `.dat` file into the card's
-**`ZORK` folder**, safely eject the card, reinsert it and reset the board.
+For the included Madman and Mars, 2049 AD stories, follow the
+[bundled story instructions](story/README.md). Current source accepts their
+original `.z3` and `.z5` extensions alongside `.dat`. This requires a new build;
+the published v0.5.0 bitstream accepts only `.DAT`, so rename copies for that
+build or install the updated bitstream. The local updated bitstream passed
+flash programming/readback on 2026-11-06; physical extension discovery remains
+to be observed.
+
+With the board powered off, copy a compatible `.dat`, `.z3` or `.z5` file into
+the card's **`ZORK` folder**, safely eject the card, reinsert it and reset the board.
 Every boot or board reset reads the directory again and builds the menu from
 the files currently on the card. Game filenames and titles are not hardcoded;
 adding, removing or replacing a compatible story requires no firmware rebuild.
-No story conversion or per-story save-file preparation is needed. Up to 20
-`.DAT` directory entries are discovered; incompatible headers are reported and
-skipped. With multiple compatible files, enter a number (1–20) and press Enter at startup using serial
-or PS/2. The menu sorts filenames alphabetically, independent of file-copy
-order. The menu displays FAT short names (for example `MYSTOR~1.DAT` for a long
-filename); simple names such as `ZORK2.DAT` are easiest to recognize.
+No story conversion or per-story save-file preparation is needed. Incompatible
+headers are reported and skipped without using menu slots. Current source lists
+the first **1,000 compatible stories alphabetically by displayed filename**
+across all three extensions, independent of file-copy order. Invalid files do
+not consume selections. Libraries beyond 1,000 still start with a warning that
+reports the number of omitted compatible stories. The save pool is discovered
+even when its directory entry follows additional story files.
+
+Enter any story number **1–1,000** and press Enter using serial or PS/2; a number
+can select a story from any page. Enter **N** for the next page or **P** for the
+previous page, followed by Enter. Numbers remain global and consecutive across
+pages. Backspace edits up to four digits. The first/last page does not wrap.
+Pages contain at most twenty stories, with fewer entries for shorter terminals
+or names that wrap across multiple lines. Page redraw updates both serial and
+HDMI. A single compatible story still starts automatically.
+
+The 1,000-entry menu build passed persistent flash programming/readback on
+2026-11-06. Physical page navigation and selection remain to be observed; older
+bitstreams retain the twenty-entry menu.
+Current source displays full VFAT long filenames, such as `mars2049ad.z5`,
+preserving their spelling, spaces and punctuation. Valid names up to 255
+characters are supported and wrap when wider than the display. Characters the
+current text font cannot display appear as `?`. Missing or malformed long-name
+records fall back to the FAT short alias, such as `MARS20~1.Z5`.
+Sorting is case-insensitive, with the short alias breaking display-name ties.
+The fixed-width V3 status row can clip long names; the selection menu and
+startup message show the full name. The full-name build passed flash
+programming/readback on 2026-11-06; physical menu appearance remains to be
+observed. Older builds show short aliases.
+Extensions are case-insensitive. The file header determines V3/V5 compatibility;
+renaming an unsupported story does not make it compatible.
 
 Initial compatibility limits:
 
@@ -282,7 +326,33 @@ Initial compatibility limits:
 
 ### One-time save preparation
 
-Fresh preparation defaults to **five selectable saves per game** for up to
+Current source supports a fresh **indexed pool for 1,000 game identities**,
+with **five selectable positions per game** by default. It occupies
+**1,310,785,536 bytes** (about 1.22 GiB), including redundant metadata. Prepare
+it on your computer, then copy it onto a FAT32 card with the board powered off:
+
+```bash
+python3 scripts/prepare_save_pool.py --output /tmp/SAVES.BIN
+```
+
+Copy that file as `/ZORK/SAVES.BIN`. The command refuses to overwrite an existing
+output and generates a fresh pool; no migration of existing saves is provided.
+On staging filesystems the file can be sparse, but its full logical size must
+fit on the FAT card. The metadata is initialized; snapshot banks start at zero.
+Use `--games N` (1–1000) and `--positions N` (1–20) to choose capacities. The
+single-file size limit permits at most **16 positions for 1,000 games**; oversized
+requests are rejected before creating a file.
+
+This format requires the indexed-pool bitstream, which passed persistent flash
+programming/readback on 2026-11-06. Older bitstreams do not understand it.
+Physical indexed-save operation remains to be observed. The paged-menu build
+supports 1,000 selections and passed flash programming/readback on 2026-11-06.
+Pool lookup reads a compact owner index rather than every snapshot header.
+The first save claims an owner in two redundant index copies before writing
+snapshot data; simply playing or cancelling a save makes no claim.
+
+Legacy preparation through `scripts/make_sd.py` still defaults to
+**five selectable saves per game** for up to
 20 story identities, using one **25 MiB** preallocated file:
 
 ```text
@@ -333,6 +403,10 @@ python3 scripts/make_sd.py --directory /tmp/v3-card-files --story ./zork1.dat
 # Repeat --story PATH to include additional stories during initial preparation.
 ```
 
+The tool accepts up to 1,000 short-named story inputs. Its generated save file
+is a legacy twenty-owner pool; for a large library use the indexed pool prepared
+above instead. Copy story files without replacing the indexed `SAVES.BIN`.
+
 Copy the resulting `ZORK` folder to the FAT card's root. Fresh preparation refuses
 an existing `ZORK` folder so it cannot replace saved games. For a fresh disk image
 instead, use `--output /tmp/v3-sdram-fat.img`; default is a 65 MiB disk image with a
@@ -344,24 +418,44 @@ normal story-file copying preserves unrelated files.
 
 ### Saves and filesystem limits
 
-The pool holds **20 story identities**, each with the configured number of
-player-selectable positions. Each position has two 128 KiB snapshot banks.
+The indexed pool holds up to **1,000 story identities**; legacy pools retain
+their existing **20-identity** layout (or eight for 2 MiB legacy pools). Each
+identity has the configured number of player-selectable positions, and each
+position has two 128 KiB snapshot banks.
 Identity uses version, release, serial, checksum, logical story size and writable-memory size;
 renaming a story or adding/removing trailing padding preserves its saves,
 and different releases normally use
-separate slots. Copies with the same identity share a slot. Removing a `.DAT`
+separate slots. Copies with the same identity share a slot. Removing a story
 file does not reclaim its saves. A full pool disables saves for new identities
 while retaining access to existing ones. Back up the entire `SAVES.BIN` file
 with the board powered off. No automatic slot deletion occurs.
 
+Indexed pools contain two checked header sectors and two copies of an owner
+index. Records identify owners by story identity, independently of menu position
+or filename. A damaged index replica can be read from the other copy; before a
+subsequent snapshot write, both owner records are committed again if necessary.
+Ambiguous ownership disables new assignments rather than reusing unknown data.
+Already identified games can still use their intact records. Snapshot checksum
+validation and alternating-bank recovery work as before.
+
+The complete pool FAT chain is validated at mount and cached as at most 4,096
+contiguous allocation runs. More fragmented pools disable saves safely. A normal
+large-cluster FAT32 card keeps the allocation walk short; selecting positions
+uses the cached map rather than traversing the large file again. Directory and
+story allocations remain protected from save writes. The indexed owner table is
+updated only during a first claim or replica repair; filesystem metadata is never
+written by the FPGA.
+
 Existing V3 `ZMV5` snapshots retain their format and remain usable. New V5 saves
-use `ZMV6` snapshots with the V5 call, stream and window state. Both formats
-share the existing pool layout and can coexist; the expansion tool preserves
-both. The V3-only v0.4.0 firmware cannot restore V5 snapshots. These names refer
+use `ZMV6` snapshots with the V5 call, stream and window state. Both snapshot
+formats can coexist in either pool format. The legacy expansion tool preserves
+both within legacy pools; it does not convert to the indexed format.
+The V3-only v0.4.0 firmware cannot restore V5 snapshots. These names refer
 to this project's snapshot formats, not the version of the story file.
 
-Firmware resolves file chains at startup and writes only the selected story's
-currently selected position's save-pair data sectors. It never writes FAT tables, FSInfo or directory entries,
+Firmware resolves file chains at startup and writes the selected story's
+currently selected save pair, plus its owner-index records when claiming or
+repairing an indexed owner. It never writes FAT tables, FSInfo or directory entries,
 or creates/resizes files. Timestamps remain unchanged. Snapshot payload is
 written before its commit header; each SD write waits for the card to finish
 being busy. Hash verification and alternating banks allow fallback to an older
@@ -371,8 +465,8 @@ Conflicting or unrecognized slot ownership is preserved rather than reclaimed.
 Supported layouts: a FAT volume without a partition table, or the first supported
 FAT16/FAT32 primary partition in an MBR. FAT12, exFAT, GPT and extended/logical
 partitions are unsupported. Cluster sizes of 1–128 sectors are accepted. Root and
-game directories are each limited to 256 sectors (4,096 entries, including VFAT
-records), and their allocations together to 32 coalesced sector extents.
+game directories are each limited to 2,048 sectors (32,768 entries, including
+VFAT records), and their allocations together to 4,096 coalesced sector extents.
 File chains must match file sizes rounded to clusters. Use a healthy filesystem;
 firmware does not run a whole-volume filesystem check.
 
@@ -417,8 +511,8 @@ bash -n build.sh scripts/build_firmware.sh tests/run.sh program_flash.sh
 Tools: Gowin V1.9.11.03 Education at `/home/donh/IDE` (override `GOWIN_HOME`),
 RISC-V GCC/binutils supporting `rv32im/ilp32`, Python 3, native GCC, Icarus Verilog
 12 and Verilator 5 with G++/make. Filesystem tests also require `dosfstools`
-(`mkfs.fat`, `fsck.fat`) and `mtools` (`mcopy`, `mmd`). Current compiler/simulator installations were
-extracted under `/tmp/zork-tools`; these are temporary and may need restoring.
+(`mkfs.fat`, `fsck.fat`) and `mtools` (`mcopy`, `mmd`). Add the tool executable
+directories to `PATH` and configure the variables below as needed.
 Set `RISCV_PREFIX` to the RISC-V tool prefix, such as
 `/opt/riscv/bin/riscv64-unknown-elf-`. `IVERILOG`, `VVP`, `VERILATOR`,
 `VERILATOR_ROOT`, and `DFROTZ` can select alternative test tools.
@@ -456,6 +550,13 @@ and expansion; the supplied private V5 stories are not redistributed.
 - 8 MiB integrated 32-bit SDR SDRAM, mapped at `0x30000000` with CPU wait states.
   A pristine story occupies the first 256 KiB; writable memory starts at
   `0x30040000`, and the V5 undo buffer at `0x30060000`.
+  The 1,000-entry story-name table occupies `0x30100000..0x3014555f`, keeping
+  full names out of firmware block RAM. Page starts and sorted indexes use
+  `0x300c0000` and `0x300c1000`; protected directory extents occupy
+  `0x300d0000..0x300d7fff`. Directory traversal supports up to 2,048 sectors
+  (32,768 FAT records), including VFAT records and unrelated entries.
+  The sector map occupies `0x30084000..0x300867ff`, indexed owner flags start at
+  `0x30094000`, and the pool extent cache occupies `0x300a0000..0x300abfff`.
   The controller uses CAS=2, single-word bursts, auto-precharge and
   autonomous refresh, including while waiting for input or SD transfers. Startup
   checks SDRAM data/address lines and byte enables before loading a story.

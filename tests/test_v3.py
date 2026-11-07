@@ -229,8 +229,10 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
         assert output.count('Choose a compatible story number.')==5 and 'Starting GAME09.DAT' in output
         assert 'Starting GAME18.DAT' in run(image,'\x1b[A19\nq\n')[0]
     image_for(image, many+[('EXTRA.DAT', alpha)])
-    assert 'Too many DAT files (maximum 20)' in run(image, expected=2)[0]
-    print('PASS FAT16/FAT32 20-story sorted menu, multi-digit editing, every save slot and fresh-process restore, discovery limit')
+    output,_=run(image,'1\nq\n')
+    assert 'Page 1/2' in output and 'more omitted' not in output
+    assert 'Starting EXTRA.DAT' in output and '20. GAME18.DAT' in output
+    print('PASS FAT16/FAT32 sorted menu, multi-digit editing, every legacy save slot, fresh-process restore and pagination')
 
     # Older ZMV5 pools retain their eight slots; expanding a copy keeps all bytes.
     image.write_bytes(make_image([('ALPHA.DAT',alpha),('SAVES.BIN',bytes(2097152))],16,8,False))

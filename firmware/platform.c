@@ -16,6 +16,11 @@ static void terminal_size(void);
 static int high_capacity;
 static char status_line[80];
 static void serial_string(const char *s){while(*s)REG(20)=*s++;}
+void console_clear(void) {
+  for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
+  row=1;column=0;
+  serial_string("\033[0m\033[2J\033[2;1H");
+}
 static void newline(void) {
   column=0;if(++row<32)return;row=31;
   for(unsigned i=80;i<2480;i++)TEXT[i]=TEXT[i+80];
