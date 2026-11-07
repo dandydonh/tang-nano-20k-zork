@@ -438,7 +438,9 @@ The generated font and initialized RAM hex files are included. Font regeneration
 uses Pillow and DejaVu Sans Mono: `python3 scripts/prepare_font.py`.
 `./build.sh` compiles firmware, builds FPGA implementation and checks setup/hold
 timing. It rejects stale bitstream output. SHA-256 hashes are in `impl/SHA256SUMS`.
-The SD generator is separate so builds cannot overwrite saves or card images.
+Disposable SD image and save-pool generators live in `tests/` as regression
+fixtures. Card setup only requires copying stories into `/ZORK`; the firmware
+creates save files automatically.
 
 Tests cover native gameplay against Frotz, save/restore across processes,
 corrupted snapshots, interrupted saves at every sector boundary, FAT16/FAT32

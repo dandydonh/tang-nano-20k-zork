@@ -11,8 +11,7 @@ from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, POOL_SIZE
+from sd_image_fixture import make_image, POOL_SIZE
 
 first = make_story(name='first', release=1)
 middle = make_story(name='middle', release=2)
@@ -84,12 +83,12 @@ with tempfile.TemporaryDirectory(prefix='zork-paged-menu-') as directory:
         paths += ['--story', str(path)]
     stage = temp/'stage'
     stage.mkdir()
-    subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage,
+    subprocess.run([sys.executable, ROOT/'tests/sd_image_fixture.py', '--directory', stage,
                     '--save-slots', '1', *paths], check=True, capture_output=True)
     assert len(list((stage/'ZORK').glob('*.Z3'))) == 1000
     refused = temp/'refused'
     refused.mkdir()
-    assert subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--directory', refused,
+    assert subprocess.run([sys.executable, ROOT/'tests/sd_image_fixture.py', '--directory', refused,
                            *paths, '--story', str(temp/'G0000.z3')], capture_output=True).returncode != 0
     assert not (refused/'ZORK').exists()
 

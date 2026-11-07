@@ -10,8 +10,7 @@ from v3_fixture import make_story
 from v5_fixture import make_story as make_v5_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, POOL_SIZE
+from sd_image_fixture import make_image, POOL_SIZE
 
 with tempfile.TemporaryDirectory(prefix='zork-extensions-') as directory:
     temp = Path(directory)
@@ -81,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix='zork-extensions-') as directory:
         source.write_bytes(data)
         stage = temp/suffix
         stage.mkdir()
-        result = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py', '--directory', stage,
+        result = subprocess.run([sys.executable, ROOT/'tests/sd_image_fixture.py', '--directory', stage,
                                  '--story', source, '--save-slots', '1'],
                                 text=True, capture_output=True, check=True)
         assert (stage/'ZORK'/f'INPUT.{suffix.upper()}').read_bytes() == data

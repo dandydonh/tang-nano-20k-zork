@@ -9,8 +9,7 @@ from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
-from make_sd import make_image,POOL_SIZE
+from sd_image_fixture import make_image,POOL_SIZE
 
 with tempfile.TemporaryDirectory(prefix='zork-boot-menu-') as directory:
     image=Path(directory)/'card.img'

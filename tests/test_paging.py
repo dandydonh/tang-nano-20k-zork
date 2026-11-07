@@ -7,8 +7,7 @@ import sys
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
-from make_sd import make_image,POOL_SIZE
+from sd_image_fixture import make_image,POOL_SIZE
 story=ROOT/'inspect_files/zork3.dat'
 if not story.exists():
     print('SKIP private Zork III pagination (story unavailable)')

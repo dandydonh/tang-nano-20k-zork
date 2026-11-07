@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a fresh indexed SAVES.BIN for up to 1000 stories; never overwrites."""
+"""Indexed save-pool fixtures for storage regression tests."""
 import argparse
 from pathlib import Path
 import struct
@@ -46,7 +46,7 @@ def create_pool(path, games=1000, positions=5):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, required=True, help='New staging file; copy as /ZORK/SAVES.BIN')
+    parser.add_argument('--output', type=Path, required=True, help='New disposable indexed-pool fixture file')
     parser.add_argument('--games', type=int, default=1000, help='Story identities (default 1000)')
     parser.add_argument('--positions', type=int, default=5, help='Save positions per story (default 5)')
     args = parser.parse_args()

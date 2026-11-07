@@ -9,8 +9,7 @@ import tempfile
 from v3_fixture import make_story, zstring
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, project_files
+from sd_image_fixture import make_image, project_files
 
 
 class Program:

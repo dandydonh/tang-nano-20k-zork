@@ -18,7 +18,7 @@ def run(image,commands,with_status=False):
     return p.stdout
 with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     image=Path(d)/'card.img'
-    subprocess.run(['python3',root/'scripts/make_sd.py','--save-slots','1','--output',image,'--fat','16','--size-mib','8'],check=True,capture_output=True)
+    subprocess.run(['python3',root/'tests/sd_image_fixture.py','--save-slots','1','--output',image,'--fat','16','--size-mib','8'],check=True,capture_output=True)
     # Recall submits only on Enter; Down restores a draft. CSI parameters and
     # unsupported navigation keys must never leak into the game's parser.
     history=run(image,'look\n\x1b[A\n\x1bOA\nopen mailbox\x1b[A\x1b[B\n'

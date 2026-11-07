@@ -59,9 +59,8 @@ python3 - <<'PY'
 from pathlib import Path
 import sys
 sys.path.insert(0,'tests')
-sys.path.insert(0,'scripts')
 from fat_helpers import FatImage
-from make_sd import make_image, project_files
+from sd_image_fixture import make_image, project_files
 from v3_fixture import make_story
 from v5_fixture import make_story as make_v5_story
 files=project_files(Path('zork1.dat').read_bytes())

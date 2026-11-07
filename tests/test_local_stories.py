@@ -10,8 +10,7 @@ import tempfile
 from fat_helpers import FatImage
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
-from make_sd import make_image,POOL_SIZE,SAVE_SIZE,validate_story
+from sd_image_fixture import make_image,POOL_SIZE,SAVE_SIZE,validate_story
 
 source=Path(sys.argv[1]) if len(sys.argv)>1 else ROOT/'inspect_files'
 paths=[source/name for name in ('lurking.dat','moonmist.dat','planetfa.dat')]

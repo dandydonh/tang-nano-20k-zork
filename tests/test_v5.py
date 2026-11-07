@@ -10,8 +10,7 @@ import tempfile
 from v5_fixture import make_story
 from fat_helpers import FatImage
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, project_files, validate_story
+from sd_image_fixture import make_image, project_files, validate_story
 
 
 def run(image, commands):
@@ -67,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='zork-mixed-') as d:
     backup = Path(d)/'saves.bin'
     expanded = Path(d)/'expanded.bin'
     backup.write_bytes(pool)
-    subprocess.run([sys.executable,ROOT/'scripts/make_sd.py','--expand-saves',backup,
+    subprocess.run([sys.executable,ROOT/'tests/sd_image_fixture.py','--expand-saves',backup,
                     '--save-slots','2','--output',expanded],check=True,capture_output=True)
     assert expanded.read_bytes()[:len(pool)] == pool
     print('PASS mixed V3/V5 menu and save ownership, retained V3 snapshots, lossless mixed-pool expansion')

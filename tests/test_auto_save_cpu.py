@@ -6,8 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"scripts"))
-from make_sd import make_image
+from sd_image_fixture import make_image
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]

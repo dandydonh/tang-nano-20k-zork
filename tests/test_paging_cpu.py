@@ -8,8 +8,7 @@ from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'scripts'))
-from make_sd import make_image,project_files
+from sd_image_fixture import make_image,project_files
 firmware=Path(sys.argv[1]).resolve() if len(sys.argv)>1 else ROOT/'assets/firmware.hex'
 with tempfile.TemporaryDirectory(prefix='zork-paging-cpu-') as directory:
     work=Path(directory)

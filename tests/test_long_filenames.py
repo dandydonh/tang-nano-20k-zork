@@ -13,8 +13,7 @@ from v3_fixture import make_story
 from v5_fixture import make_story as make_v5_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, POOL_SIZE
+from sd_image_fixture import make_image, POOL_SIZE
 
 OFFSETS = (1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30)
 alpha = make_story(name='alpha', release=801)

@@ -11,8 +11,7 @@ from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, POOL_SIZE, SAVE_SIZE
+from sd_image_fixture import make_image, POOL_SIZE, SAVE_SIZE
 
 
 def run(image, commands, cut=None):
@@ -114,7 +113,7 @@ with tempfile.TemporaryDirectory(prefix='zork-save-slots-') as directory:
     old = temp/'old.bin'
     old.write_bytes(FatImage(image.read_bytes()).file_bytes('SAVES.BIN'))
     expanded = temp/'expanded.bin'
-    args = [sys.executable, ROOT/'scripts/make_sd.py', '--expand-saves', old, '--output', expanded]
+    args = [sys.executable, ROOT/'tests/sd_image_fixture.py', '--expand-saves', old, '--output', expanded]
     subprocess.run(args, check=True, capture_output=True)
     assert len(expanded.read_bytes()) == 5*POOL_SIZE
     assert expanded.read_bytes() == old.read_bytes()+bytes(4*POOL_SIZE)

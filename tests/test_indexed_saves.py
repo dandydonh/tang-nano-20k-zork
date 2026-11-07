@@ -12,9 +12,8 @@ from v3_fixture import make_story
 from v5_fixture import make_story as make_v5_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image
-from prepare_save_pool import pool_header, create_pool, checksum
+from sd_image_fixture import make_image
+from save_pool_fixture import pool_header, create_pool, checksum
 
 
 def fresh_pool(games=3, positions=2):
@@ -196,17 +195,17 @@ with tempfile.TemporaryDirectory(prefix='zork-indexed-') as directory:
     print('PASS excessive fragmentation safely disables indexed writes without overrunning the extent cache')
 
     output = temp/'SAVES.BIN'
-    subprocess.run([sys.executable, ROOT/'scripts/prepare_save_pool.py', '--output', output], check=True, capture_output=True)
+    subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--output', output], check=True, capture_output=True)
     header, size = pool_header()
     assert output.stat().st_size == size == 1310785536
     with output.open('rb') as stream:
         assert stream.read(1024) == header+header
         stream.seek(size-512)
         assert stream.read() == bytes(512)
-    assert subprocess.run([sys.executable, ROOT/'scripts/prepare_save_pool.py', '--output', output], capture_output=True).returncode != 0
+    assert subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--output', output], capture_output=True).returncode != 0
     for positions in (17, 20):
         refused = temp/f'refused-{positions}.bin'
-        assert subprocess.run([sys.executable, ROOT/'scripts/prepare_save_pool.py', '--positions', str(positions), '--output', refused], capture_output=True).returncode != 0
+        assert subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--positions', str(positions), '--output', refused], capture_output=True).returncode != 0
         assert not refused.exists()
     assert pool_header(1000, 16)[1] < 2**32
     print('PASS streaming fresh-pool tool: exact 1000x5 size, zero data, overwrite refusal and 32-bit file-size bounds')

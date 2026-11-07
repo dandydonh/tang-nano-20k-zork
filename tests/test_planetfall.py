@@ -9,8 +9,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
-from make_sd import make_image, project_files
+from sd_image_fixture import make_image, project_files
 
 story = ROOT / 'inspect_files/planetfa.dat'
 if not story.is_file():

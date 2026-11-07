@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare V3/V5 stories and a save pool, or a FAT16/FAT32 image; never writes a block device."""
+"""Disposable FAT16/FAT32 images and legacy save fixtures for regression tests."""
 import argparse
 import hashlib
 from pathlib import Path

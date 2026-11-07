@@ -11,8 +11,7 @@ from indexed_pool_helpers import sparse_card, pool_lba
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import dir_entry
+from sd_image_fixture import dir_entry
 
 with tempfile.TemporaryDirectory(prefix='zork-menu-cpu-') as directory:
     work = Path(directory)

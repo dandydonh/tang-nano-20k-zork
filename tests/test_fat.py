@@ -10,8 +10,7 @@ import tempfile
 from fat_helpers import FatImage, get32
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import make_image, project_files
+from sd_image_fixture import make_image, project_files
 
 
 def tool(name):
@@ -90,10 +89,10 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
     stage = temp/'stage'
     stage.mkdir()
     (stage/'unrelated.txt').write_bytes(b'keep me')
-    command([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--directory', stage])
+    command([sys.executable, ROOT/'tests/sd_image_fixture.py','--save-slots','1', '--directory', stage])
     assert (stage/'unrelated.txt').read_bytes() == b'keep me'
     saved = (stage/'ZORK/SAVES.BIN').read_bytes()
-    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--directory', stage], capture_output=True)
+    refused = subprocess.run([sys.executable, ROOT/'tests/sd_image_fixture.py','--save-slots','1', '--directory', stage], capture_output=True)
     assert refused.returncode != 0 and (stage/'ZORK/SAVES.BIN').read_bytes() == saved
     for fat, mib, spc in ((16, 16, 4), (32, 128, 2)):
         with image.open('wb') as stream:
@@ -211,6 +210,6 @@ with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:
         image.write_bytes(broken)
         command([ROOT/'impl/storage-test', image], expected=2)
     image.write_bytes(valid.data)
-    refused = subprocess.run([sys.executable, ROOT/'scripts/make_sd.py','--save-slots','1', '--output', image], capture_output=True)
+    refused = subprocess.run([sys.executable, ROOT/'tests/sd_image_fixture.py','--save-slots','1', '--output', image], capture_output=True)
     assert refused.returncode != 0 and image.read_bytes() == valid.data
     print('PASS active FAT32 table selection, invalid FAT32/partition geometry and existing-image preservation')

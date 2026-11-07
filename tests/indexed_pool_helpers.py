@@ -4,9 +4,8 @@ import struct
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'scripts'))
-from make_sd import dir_entry
-from prepare_save_pool import pool_header
+from sd_image_fixture import dir_entry
+from save_pool_fixture import pool_header
 
 
 def sparse_card(path, story, games=1000, positions=5, fragmented=False, spc=64, directory_clusters=1):
