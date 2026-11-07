@@ -29,12 +29,27 @@ def validate_story(story):
         raise ValueError('Invalid story memory layout')
 
 
-def project_files(story, name='ZORK1.DAT', save_slots=1):
-    """Build fixtures; retain the legacy single-position default for callers."""
+def sidecar_name(name):
+    return name.rsplit('.', 1)[0]+'.SAV'
+
+
+def empty_sidecar(story):
+    """Independent v1 single-owner/five-position fixture, no saved snapshots."""
+    from save_pool_fixture import pool_header, checksum
+    header, size = pool_header(1, 5)
+    logical = int.from_bytes(story[26:28], 'big')*(4 if story[0] == 5 else 2) or len(story)
+    identity = bytearray(story[2:4]+story[18:24]+story[28:30]+logical.to_bytes(4, 'little')+story[14:16])
+    if story[0] == 5: identity[13] = 5
+    record = bytearray(b'ZOWN'+(1).to_bytes(4,'little')+identity+bytes(4))
+    record += checksum(record).to_bytes(4, 'little')
+    index = record+bytes(512-len(record))
+    return header+header+index+index+bytes(size-2048)
+
+
+def project_files(story, name='ZORK1.DAT'):
+    """Existing sidecar fixture; automatic creation tests use story files only."""
     validate_story(story)
-    if not 1 <= save_slots <= MAX_GAME_SLOTS:
-        raise ValueError('Save slots must be 1..20 per game')
-    return [(name, story), ('SAVES.BIN', bytes(POOL_SIZE*save_slots))]
+    return [(name, story), (sidecar_name(name), empty_sidecar(story))]
 
 
 def dir_entry(name, cluster, size=0, directory=False):

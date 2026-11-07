@@ -72,7 +72,7 @@ module soc_tb;
        previous_serial=dut.wdata[7:0];
        $write("%c",dut.wdata[7:0]);$fflush();chars=chars+1;if(dut.wdata[7:0]==62)prompts=prompts+1;
      end
-     // Expanded pool scans dominate the maximum-memory fixture boot/reset.
+     // Bound all storage and processor regressions.
      if(cycles==1000000000)$fatal(1,"timeout pc=%h SDreads=%d",dut.cpu.reg_pc,card.reads);
    end
  end
@@ -88,6 +88,18 @@ module soc_tb;
    forever begin
      wait(more_requests>handled);repeat(2000)@(negedge clk);
      send_uart(" ");handled=handled+1;
+   end
+ end
+ // Single-position gameplay scenarios still exercise the real five-slot UI.
+ // Dedicated menu/creation benches supply their own selections.
+ initial begin : default_slot_selections
+   integer handled_slots=0,handled_confirmations=0;
+   if(!$test$plusargs("slots")&&!$test$plusargs("autosave")&&!$test$plusargs("manualslots"))forever begin
+     wait(slot_menus>handled_slots||confirmations>handled_confirmations);
+     repeat(2000)@(negedge clk);
+     if(confirmations>handled_confirmations)begin
+       send_uart("y");send_uart(13);handled_confirmations=handled_confirmations+1;
+     end else begin send_uart("1");send_uart(13);handled_slots=handled_slots+1;end
    end
  end
  task send_key(input [7:0] c);

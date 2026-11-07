@@ -13,14 +13,14 @@ from sd_image_fixture import make_image,POOL_SIZE
 
 with tempfile.TemporaryDirectory(prefix='zork-boot-menu-') as directory:
     image=Path(directory)/'card.img'
-    pool=bytes(POOL_SIZE)
+    saves=[]
 
     def prepare(stories):
-        image.write_bytes(make_image(stories+[('SAVES.BIN',pool)],16,8,False))
+        image.write_bytes(make_image(stories+saves,16,8,False))
 
     def boot(commands,expected=0):
         result=subprocess.run([ROOT/'impl/zork-host'],input=commands,text=True,capture_output=True,
-                              env=dict(os.environ,ZORK_SD_IMAGE=str(image)),timeout=10)
+                              env=dict(os.environ,ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1'),timeout=10)
         assert result.returncode==expected,(result.stdout,result.stderr)
         return result.stdout
 
@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix='zork-boot-menu-') as directory:
     prepare([('ORCHARD.DAT',orchard),('CAVERN.DAT',cavern)])
     output=boot('1\ns\nq\n')
     assert '1. CAVERN.DAT\n2. ORCHARD.DAT' in output and 'cavern ready' in output
-    pool=FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
+    saves=[('CAVERN.SAV',FatImage(image.read_bytes()).file_bytes('CAVERN.SAV'))]
 
     # Remove one file, add another and change copy order on the same card.
     forest=make_story(name='forest',release=43)

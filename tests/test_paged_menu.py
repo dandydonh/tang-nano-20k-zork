@@ -11,7 +11,7 @@ from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
-from sd_image_fixture import make_image, POOL_SIZE
+from sd_image_fixture import make_image, POOL_SIZE, empty_sidecar
 
 first = make_story(name='first', release=1)
 middle = make_story(name='middle', release=2)
@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix='zork-paged-menu-') as directory:
     image = temp/'card.img'
 
     def boot(commands, rows=None):
-        env = dict(os.environ, ZORK_SD_IMAGE=str(image))
+        env = dict(os.environ, ZORK_SD_IMAGE=str(image),ZORK_TEST_DEFAULT_SLOT='1')
         if rows is not None:
             env['ZORK_PAGE_ROWS'] = str(rows)
         result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix='zork-paged-menu-') as directory:
 
     for fat, size in ((16, 16), (32, 64)):
         for order in (files, list(reversed(files))):
-            image.write_bytes(make_image(bad+order+[('SAVES.BIN', bytes(POOL_SIZE))], fat, size, False))
+            image.write_bytes(make_image(bad+order+[('G0999.SAV',empty_sidecar(last))], fat, size, False))
             before = image.read_bytes()
             out = boot('P\nN\nP\n1000\nn\ns\nq\n')
             pages = re.findall(r'Page (\d+)/(\d+) \(stories (\d+)-(\d+) of (\d+)\)', out)

@@ -26,7 +26,7 @@ for name,commands,phrases in cases:
         image.write_bytes(make_image(project_files(original,name.upper()+'.DAT'),16,8,False))
         def run(text):
             result=subprocess.run([ROOT/'impl/zork-host'],input=text,text=True,capture_output=True,
-                                  env=dict(os.environ,ZORK_SD_IMAGE=str(image)),timeout=30)
+                                  env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_TEST_DEFAULT_SLOT='1'),timeout=30)
             assert result.returncode==0 and 'CORE ERROR' not in result.stdout,(name,result.stdout)
             return result.stdout
         ours=run(commands+'save\nlook\nrestore\nlook\n')

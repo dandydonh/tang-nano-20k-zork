@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix='zork-dynamic-cpu-') as directory:
     (work/'assets').mkdir();(work/'impl').mkdir()
     (work/'assets/firmware.hex').write_bytes(firmware.read_bytes())
     layout=FatImage(make_image(project_files(make_story(size=16384,intro=intro,input_size=120)),16,16,False))
-    sectors=layout.sectors('SAVES.BIN')[:512]
+    sectors=layout.sectors('ZORK1.SAV')[4:516]
     (work/'impl/test-wrap-save-sectors.hex').write_text(''.join(f'{v:08x}\n' for v in sectors))
     (work/'impl/test-wrap.hex').write_text(''.join(f'{v:02x}\n' for v in layout.data[:16*1024*1024]))
     bench=(ROOT/'tests/soc_tb.v').read_text().split(' initial begin\n   $display')[0]

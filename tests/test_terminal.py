@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 init = '\x1b[0m\x1b[37;49m\x1b[2J\x1b[2;r\x1b[2;1H'
+menu_clear = '\x1b[0m\x1b[2J\x1b[2;1H'
 title = 'ZORK1.DAT - Tang Nano 20K'
 status = re.compile(r'\x1b7\x1b\[1;1H\x1b\[2K' + re.escape(title) +
                     r'\x1b\[999C\x1b\[(\d+)D(Score: (-?\d+) +Moves: (\d+))\x1b8')
@@ -14,6 +15,8 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
     frames = status.findall(stream)
     assert len(frames) == 10, (logfile, frames)
     clean = status.sub('', stream).replace(init, '')
+    assert stream.count(menu_clear) == (2 if logfile.endswith('soc-menu.log') else 0)
+    clean = clean.replace(menu_clear, '')
     clean = clean.replace('\x1b7\x1b[999;999H\x1b[6n\x1b8','')
     clean = re.sub(r'\x1b\[0m\[MORE\]\x08{6}(?:(?:\x1b\[[07]m)?.){6}\x08{6}','',clean)
     assert title not in clean, 'duplicate standalone startup title'
@@ -60,6 +63,12 @@ for logfile in ('impl/soc-verilator.log', 'impl/soc-sdsc.log', 'impl/soc-fat32.l
                 saved = None
                 updates += 1
                 pos += 2
+                continue
+            if data.startswith(menu_clear,pos):
+                assert expected_status is None, 'story menu erased an active status'
+                screen = [[' '] * width for _ in range(height)]
+                row,col,background,reverse = 1,0,'black',False
+                pos += len(menu_clear)
                 continue
             control = re.match(r'\x1b\[([0-9;]*)([mJHKrCD])', data[pos:])
             if control:

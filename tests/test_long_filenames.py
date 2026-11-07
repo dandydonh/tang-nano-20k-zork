@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
     def boot(commands, expected=0):
         result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
                                 capture_output=True, timeout=30,
-                                env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                                env=dict(os.environ, ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1'))
         assert result.returncode == expected, (result.stdout, result.stderr)
         if expected == 0:
             assert 'CORE ERROR' not in result.stdout and 'testfailed' not in result.stdout, result.stdout
@@ -103,10 +103,11 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
         assert 'Starting Zulu story.z3\n' in output and 'beta moved' in output
         assert 'saved' in output and 'savefailed' not in output
         assert 'AAA~1' not in output and 'MARS20~1' not in output
-        FatImage(image.read_bytes()).assert_only_saves_changed(before)
+        assert FatImage(image.read_bytes()).file_bytes('SAVES.BIN') == bytes(POOL_SIZE)
+        for alias,_,data in records: assert FatImage(image.read_bytes()).file_bytes(alias)==data
         assert 'vfive ready' in boot('1\nq\n')[0]
 
-        # Removing only the LFN leaves the same content identity and saved state.
+        # Removing the LFN changes the sidecar stem; the old save remains untouched.
         layout = FatImage(image.read_bytes())
         target = layout.file_entry('AAA~1.Z3')
         # This sequence is on the first sector's last slot and the next cluster.
@@ -117,8 +118,10 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
             layout.data[offsets[index]] = 0xe5
             index -= 1
         image.write_bytes(layout.data)
+        before=image.read_bytes()
         output, _ = boot('1\nr\nl\nq\n')
-        assert 'Starting AAA~1.Z3\n' in output and 'beta moved' in output and 'restorefailed' not in output
+        assert 'Starting AAA~1.Z3\n' in output and 'restorefailed' in output
+        assert image.read_bytes()==before
 
         # Boundary lengths: exactly 13/26 units have no terminator, 255 is maximal.
         for length in (13, 26, 255):

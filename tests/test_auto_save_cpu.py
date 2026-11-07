@@ -6,7 +6,8 @@ import shutil
 import subprocess
 import tempfile
 import sys
-from sd_image_fixture import make_image
+from sd_image_fixture import make_image, POOL_SIZE
+from fat_helpers import FatImage
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,8 @@ with tempfile.TemporaryDirectory(prefix='zork-auto-cpu-') as directory:
     (work/'impl').mkdir()
     (work/'assets/firmware.hex').write_bytes((ROOT/'assets/firmware.hex').read_bytes())
     image = work/'card.img'
-    original=make_image([('ALPHA.Z3',make_story())],16,8,False)
+    original=make_image([('ALPHA.Z3',make_story()),('SAVES.BIN',bytes(POOL_SIZE))],16,8,False)
+    forbidden=FatImage(original).sectors('SAVES.BIN')
     image.write_bytes(original)
     trace=work/'writes.log'
     env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_WRITE_LOG=str(trace))
@@ -71,7 +73,7 @@ endmodule
                        stdout=log, stderr=subprocess.STDOUT, check=True, timeout=180)
     log = ROOT/'impl/auto-save-cpu.log'
     with log.open('w') as output:
-        subprocess.run([work/'obj/Vauto_save_soc_tb', '+wrap', '+autosave'], cwd=work,
+        subprocess.run([work/'obj/Vauto_save_soc_tb', '+wrap', '+autosave',f'+forbidden_first={min(forbidden)}',f'+forbidden_last={max(forbidden)}'], cwd=work,
                        stdout=output, stderr=subprocess.STDOUT, check=True, timeout=1800)
     text = log.read_text()
     assert 'PASS automatic save CPU:' in text and 'CORE ERROR' not in text

@@ -8,7 +8,7 @@ import tempfile
 from fat_helpers import FatImage
 root=Path(__file__).resolve().parents[1]
 def run(image,commands,with_status=False):
-    env=dict(os.environ,ZORK_SD_IMAGE=str(image))
+    env=dict(os.environ,ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1')
     p=subprocess.run([root/'impl/zork-host'],input=commands,text=True,capture_output=True,env=env,check=True)
     assert 'CORE ERROR' not in p.stdout,p.stdout
     if with_status:
@@ -40,9 +40,9 @@ with tempfile.TemporaryDirectory(prefix='zork-test-') as d:
     layout=FatImage(second)
     layout.assert_only_saves_changed(original)
     assert layout.file_bytes('ZORK1.DAT')==(root/'zork1.dat').read_bytes()
-    assert layout.file_bytes('SAVES.BIN')[:4]==b'ZMV5'
-    assert layout.file_bytes('SAVES.BIN')[131072:131076]==b'ZMV5'
-    pool=layout.sectors('SAVES.BIN');bank_a=pool[:256];bank_b=pool[256:512]
+    assert layout.file_bytes('ZORK1.SAV')[2048:2052]==b'ZMV5'
+    assert layout.file_bytes('ZORK1.SAV')[133120:133124]==b'ZMV5'
+    pool=layout.sectors('ZORK1.SAV');bank_a=pool[4:260];bank_b=pool[260:516]
     # Corrupt newest bank payload: restore must fall back to the previous snapshot.
     bad=bytearray(second);bad[bank_b[1]*512+123]^=128;image.write_bytes(bad)
     recovered=run(image,'restore\nlook\ninventory\n')

@@ -9,15 +9,11 @@
 #define STORAGE_SAVE_MAGIC 0x35564d5aU
 #define STORAGE_ID_BYTES 16U
 #define STORAGE_STORY_LIMIT 1000U
-#define STORAGE_SAVE_SLOTS 20U
-#define STORAGE_LEGACY_SLOTS 8U
-/* Player positions per story; each plane retains twenty story identities. */
+/* Maximum positions accepted by the indexed snapshot format. */
 #define STORAGE_GAME_SLOTS 20U
 #define STORAGE_BANK_BYTES 131072U
 #define STORAGE_BANK_SECTORS (STORAGE_BANK_BYTES/512U)
-#define STORAGE_PLANE_BYTES (STORAGE_SAVE_SLOTS * 2U * STORAGE_BANK_BYTES)
-#define STORAGE_POOL_BYTES (STORAGE_GAME_SLOTS * STORAGE_PLANE_BYTES)
-/* Indexed pool v1: fresh pools support up to 1000 independent story owners. */
+/* Indexed format v1; automatic sidecars use one owner and five positions. */
 #define STORAGE_INDEX_GAMES 1000U
 #define STORAGE_INDEX_RECORD_BYTES 32U
 #define STORAGE_INDEX_EXTENTS 4096U

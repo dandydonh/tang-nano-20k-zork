@@ -5,7 +5,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from v5_fixture import make_story
 from fat_helpers import FatImage
@@ -13,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 from sd_image_fixture import make_image, project_files, validate_story
 
 
-def run(image, commands):
+def run(image, commands, automatic=True):
     result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
                             capture_output=True, timeout=30,
-                            env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                            env=dict(os.environ, ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1' if automatic else ''))
     assert result.returncode == 0, (result.stdout, result.stderr)
     assert 'testfailed' not in result.stdout and 'CORE ERROR' not in result.stdout, result.stdout
     return result.stdout
@@ -39,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v5-') as d:
     after = FatImage(image.read_bytes())
     after.assert_only_saves_changed(before)
     assert after.file_bytes('VFIVE.DAT') == story
-    assert after.file_bytes('SAVES.BIN')[:4] == b'ZMV6'
+    assert after.file_bytes('VFIVE.SAV')[2048:2052] == b'ZMV6'
     print('PASS V5: 256 KiB/fragmented story, high calls/text, seven args, large objects/properties, 48 attributes, nine-character dictionary, tables, shifts, windows, undo, save/restore/reset and write bounds')
     frotz = shutil.which('dfrotz') or '/usr/games/dfrotz'
     if Path(frotz).is_file():
@@ -51,39 +50,33 @@ with tempfile.TemporaryDirectory(prefix='zork-v5-') as d:
         assert 'vfive ready' in reference.stdout and '>9' in reference.stdout
         print('PASS independent Frotz execution of original V5 instruction fixture')
 
-# Real V3 and V5 programs coexist in one pool; existing V3 saves stay usable.
+# Real V3 and V5 programs use separate sidecars; V3 saves stay usable.
 from v3_fixture import make_story as make_v3_story
 with tempfile.TemporaryDirectory(prefix='zork-mixed-') as d:
     image = Path(d)/'mixed.img'
-    image.write_bytes(make_image([('ALPHA.DAT',make_v3_story()),('BETA.DAT',make_story()),
-                                  ('SAVES.BIN',bytes(5242880))],16,8,False))
+    image.write_bytes(make_image(project_files(make_v3_story(),'ALPHA.DAT')+project_files(make_story(),'BETA.DAT'),16,8,False))
     assert 'saved' in run(image,'1\ns\nn\ns\nq\n')
     vfive = run(image,'2\ns\nn\nr\nl\nq\n')
     assert 'V3/V5 stories:' in vfive and 'restored' in vfive and '\n0\n' in vfive
     assert 'alpha moved' in run(image,'1\nr\nl\nq\n')
-    pool = FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
-    assert pool[:4] == b'ZMV5' and pool[262144:262148] == b'ZMV6'
-    backup = Path(d)/'saves.bin'
-    expanded = Path(d)/'expanded.bin'
-    backup.write_bytes(pool)
-    subprocess.run([sys.executable,ROOT/'tests/sd_image_fixture.py','--expand-saves',backup,
-                    '--save-slots','2','--output',expanded],check=True,capture_output=True)
-    assert expanded.read_bytes()[:len(pool)] == pool
-    print('PASS mixed V3/V5 menu and save ownership, retained V3 snapshots, lossless mixed-pool expansion')
+    layout=FatImage(image.read_bytes())
+    assert layout.file_bytes('ALPHA.SAV')[2048:2052] == b'ZMV5'
+    assert layout.file_bytes('BETA.SAV')[2048:2052] == b'ZMV6'
+    print('PASS mixed V3/V5 menu, independent sidecars and retained snapshots')
 
 with tempfile.TemporaryDirectory(prefix='zork-v5-atomic-') as d:
     image = Path(d)/'card.img'
     image.write_bytes(make_image(project_files(make_story(dynamic=65535)),16,8,False))
     run(image,'s\nq\n')
     baseline = image.read_bytes()
-    pool = FatImage(baseline).file_bytes('SAVES.BIN')
-    size = int.from_bytes(pool[8:12],'little')
+    pool = FatImage(baseline).file_bytes('ZORK1.SAV')
+    size = int.from_bytes(pool[2056:2060],'little')
     writes = (size+511)//512+1
     for cut in range(writes):
         image.write_bytes(baseline)
         interrupted = subprocess.run([ROOT/'impl/zork-host'],input='n\ns\nq\n',text=True,
                                      capture_output=True,timeout=30,
-                                     env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_CUT_AFTER_WRITES=str(cut)))
+                                     env=dict(os.environ,ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1',ZORK_CUT_AFTER_WRITES=str(cut)))
         assert interrupted.returncode == 99,(cut,interrupted.stdout,interrupted.stderr)
         restored = run(image,'r\nl\nq\n')
         assert 'restored' in restored and '\n0\n' in restored,(cut,restored)
@@ -91,8 +84,8 @@ with tempfile.TemporaryDirectory(prefix='zork-v5-atomic-') as d:
     run(image,'n\ns\nq\n')
     layout = FatImage(image.read_bytes())
     # Corrupt the newest bank's screen trailer; checksum must select old state.
-    sectors = layout.sectors('SAVES.BIN')
-    payload_byte = 131072+512+size-1
+    sectors = layout.sectors('ZORK1.SAV')
+    payload_byte = 2048+131072+512+size-1
     layout.data[sectors[payload_byte//512]*512+payload_byte%512] ^= 1
     image.write_bytes(layout.data)
     assert '\n0\n' in run(image,'r\nl\nq\n')
@@ -100,8 +93,8 @@ with tempfile.TemporaryDirectory(prefix='zork-v5-atomic-') as d:
 
 with tempfile.TemporaryDirectory(prefix='zork-v5-slots-') as d:
     image = Path(d)/'card.img'
-    image.write_bytes(make_image(project_files(make_story(),save_slots=2),16,16,False))
-    output = run(image,'s\n1\nn\ns\n2\nr\n1\nl\nr\n2\nl\nq\n')
+    image.write_bytes(make_image(project_files(make_story()),16,16,False))
+    output = run(image,'s\n1\nn\ns\n2\nr\n1\nl\nr\n2\nl\nq\n',automatic=False)
     assert '\n0\n' in output and '\n9\n' in output and 'Slot number' in output,output
-    assert '\n9\n' in run(image,'r\n2\nl\nq\n')
+    assert '\n9\n' in run(image,'r\n2\nl\nq\n',automatic=False)
     print('PASS V5 selected positions: distinct states, in-game restore and reset restore')

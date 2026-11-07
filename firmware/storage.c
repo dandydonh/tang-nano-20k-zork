@@ -10,11 +10,9 @@
 #define STORY_NAME_MAX 255U
 #ifdef HOST
 static uint32_t sector_map[MAP_SECTORS];
-static uint32_t save_headers[STORAGE_SAVE_SLOTS*2*STORAGE_GAME_SLOTS];
 static uint8_t owner_flags[STORAGE_INDEX_GAMES];
 #else
 /* After the 0x30060000..0x3007ffff undo bank; populated before use. */
-#define save_headers ((volatile uint32_t *)0x30080000U)
 #define sector_map ((uint32_t *)0x30084000U)
 #define owner_flags ((uint8_t *)0x30094000U)
 #endif
@@ -30,7 +28,7 @@ static uint8_t buf[512], fat_buf[512], story_id[STORAGE_ID_BYTES];
 static uint32_t fat_cached_sector, fat_start, data_start, cluster_count, root_start, root_sectors;
 static uint32_t story_bytes;
 static uint32_t story_first_sector,story_last_sector;
-static unsigned sectors_per_cluster, fat32, ready, saves_ready, story_sectors, story_count, story_omitted, chosen, save_slots;
+static unsigned sectors_per_cluster, fat32, ready, saves_ready, story_sectors, story_count, story_omitted, chosen;
 static unsigned game_slots, save_owner, mapped_game_slot;
 struct entry { uint32_t cluster, size; unsigned attr; };
 struct candidate { struct entry file; char name[STORY_NAME_MAX+1], alias[13]; uint8_t version; };
@@ -44,7 +42,7 @@ static uint16_t story_order[STORY_LIMIT],menu_pages[STORY_LIMIT+1];
 #define menu_pages ((uint16_t *)0x300c0000U)
 #endif
 struct long_name { uint16_t units[260]; unsigned count, expected, checksum; };
-static struct entry pool;
+static struct entry sidecar_file;
 struct directory_extent { uint32_t start,size; };
 #ifdef HOST
 static struct directory_extent directories[DIR_EXTENTS];
@@ -174,7 +172,7 @@ static int long_name_text(const struct long_name *name,const uint8_t *p,char *te
   text[length]=0;return 1;
 }
 static void collect_story(const uint8_t *p,const struct long_name *name);
-/* mode 0 finds ZORK, mode 1 collects stories and the optional save pool.
+/* mode 0 finds ZORK, mode 1 collects stories.
  * Header validation uses buf; keep directory entries separate while scanning. */
 static int directory(uint32_t start,int fixed_root,unsigned mode,struct entry *game_dir) {
   uint8_t entries[512];
@@ -196,8 +194,6 @@ static int directory(uint32_t start,int fixed_root,unsigned mode,struct entry *g
           if(equal(p,(const uint8_t*)"ZORK       ",11)) {
             if(found++)return 0;*game_dir=entry_at(p);
           }
-        } else if(equal(p,(const uint8_t*)"SAVES   BIN",11)) {
-          if(found++)return 0;pool=entry_at(p);
         } else if(!(p[11]&0x10)&&story_extension(p+8)) {
           collect_story(p,&name);
         }
@@ -233,29 +229,19 @@ static int directory_overlap(uint32_t lba,unsigned n) {
     if(lba<directories[i].start+directories[i].size&&directories[i].start<lba+n)return 1;
   return 0;
 }
-/* Exact finite chain lengths reject cycles/short/overallocated files. Pool
- * traversal protects every slot, but only maps the currently selected pair. */
-static int map_file(struct entry *e,int is_pool,unsigned skip) {
-  if((e->attr&0x18)||(is_pool&&(e->attr&1))||!e->size)return 0;
+/* Exact finite chain length rejects cycles and short/overallocated stories. */
+static int map_story(struct entry *e) {
+  if((e->attr&0x18)||!e->size)return 0;
   unsigned size=(e->size+511)/512;uint32_t c=e->cluster;
-  unsigned bound=is_pool?STORAGE_POOL_BYTES/512:STORY_SECTORS;
-  if(size>bound)return 0;
+  if(size>STORY_SECTORS)return 0;
   for(unsigned i=0;i<size;) {
     if(!cluster_valid(c))return 0;
     uint32_t lba=cluster_sector(c);
     if(directory_overlap(lba,sectors_per_cluster))return 0;
-    if(is_pool&&lba<=story_last_sector&&lba+sectors_per_cluster>story_first_sector)for(unsigned j=0;j<story_sectors;j++)
-      if(sector_map[j]>=lba&&sector_map[j]-lba<sectors_per_cluster)return 0;
     for(unsigned s=0;s<sectors_per_cluster&&i<size;s++,i++) {
-      if(!is_pool) {
-        sector_map[i]=lba+s;
-        if(lba+s<story_first_sector)story_first_sector=lba+s;
-        if(lba+s>story_last_sector)story_last_sector=lba+s;
-      }
-      else {
-        if(i%SAVE_SECTORS==0)save_headers[i/SAVE_SECTORS]=lba+s;
-        if(i>=skip&&i-skip<2*SAVE_SECTORS)sector_map[STORY_SECTORS+i-skip]=lba+s;
-      }
+      sector_map[i]=lba+s;
+      if(lba+s<story_first_sector)story_first_sector=lba+s;
+      if(lba+s>story_last_sector)story_last_sector=lba+s;
     }
     if(!next_cluster(c,&c))return 0;
     if(i<size&&chain_end(c))return 0;
@@ -303,7 +289,7 @@ static void collect_story(const uint8_t *p,const struct long_name *name) {
   if(error){say("Skipping ");say(item.name);say(": ");say(error);say("\n");return;}
   item.version=buf[0];
   /* A max heap retains the first 1000 names without moving full-name records
-   * on every insertion. Overflow still scans through a later SAVES.BIN. */
+   * on every insertion. Continue scanning to validate all candidates. */
   if(story_count==STORY_LIMIT) {
     story_omitted++;
     if(!candidate_after(&stories[story_order[0]],&item))return;
@@ -389,7 +375,7 @@ static int select_story(void) {
   chosen=story_order[chosen];
   struct entry *e=&stories[chosen].file;
   story_sectors=(e->size+511)/512;
-  if(!map_file(e,0,0)){say("Invalid story allocation chain.\n");return 0;}
+  if(!map_story(e)){say("Invalid story allocation chain.\n");return 0;}
   if(!sd_read_sector(sector_map[0],buf))return 0;
   story_bytes=(buf[0]==5?4U:2U)*be16(buf+26);if(!story_bytes)story_bytes=e->size;
   /* Standard release/serial/checksum identity, plus logical and dynamic sizes.
@@ -403,10 +389,10 @@ static int select_story(void) {
   say("Starting ");say(stories[chosen].name);say("\n");return 1;
 }
 /* Validate the complete allocation once, retaining contiguous runs rather than
- * one entry per sector. Large, normally allocated pools need only a few runs. */
+ * one entry per sector. Normally allocated sidecars need only a few runs. */
 static int index_map_pool(void) {
-  if((pool.attr&0x19)||!pool.size||pool.size%512)return 0;
-  uint32_t c=pool.cluster,total=pool.size/512;
+  if((sidecar_file.attr&0x19)||!sidecar_file.size||sidecar_file.size%512)return 0;
+  uint32_t c=sidecar_file.cluster,total=sidecar_file.size/512;
   extent_count=0;
   for(uint32_t at=0;at<total;) {
     if(!cluster_valid(c))return 0;
@@ -450,7 +436,7 @@ static int index_header(const uint8_t *p) {
   uint32_t metadata=(2+2*sectors)*512U;
   if(owners*positions>(UINT32_MAX-metadata)/(2U*STORAGE_BANK_BYTES))return 0;
   uint32_t bytes=metadata+owners*positions*2U*STORAGE_BANK_BYTES;
-  return u32(p+32)==bytes&&pool.size==bytes;
+  return u32(p+32)==bytes&&sidecar_file.size==bytes;
 }
 /* 0 = empty, 1 = committed owner, 2 = damaged record (never reallocated). */
 static unsigned index_record(const uint8_t *p,unsigned owner) {
@@ -497,7 +483,7 @@ static int select_indexed_saves(void) {
     say("Save index damaged; new story allocation disabled.\n");return 0;
   }
   int owner=match>=0?match:empty;
-  if(owner<0){say("Save pool full; no slot for this story.\n");return 0;}
+  if(owner<0){say("Save file belongs to another story.\n");return 0;}
   save_owner=(unsigned)owner;index_claimed=matched_redundant;indexed_pool=1;
   return index_map_pair(0);
 }
@@ -518,36 +504,12 @@ static int index_claim(void) {
   owner_flags[save_owner]=1;
   index_claimed=1;return 1;
 }
-static int select_saves(void) {
-  game_slots=1;
-  if(pool.size==STORAGE_LEGACY_SLOTS*2U*STORAGE_BANK_BYTES)save_slots=STORAGE_LEGACY_SLOTS;
-  else if(pool.size&&pool.size%STORAGE_PLANE_BYTES==0&&pool.size<=STORAGE_POOL_BYTES) {
-    save_slots=STORAGE_SAVE_SLOTS;game_slots=pool.size/STORAGE_PLANE_BYTES;
-  }
-  else return select_indexed_saves();
-  if(!map_file(&pool,1,0))return 0;
-  int match=-1,empty=-1;
-  for(unsigned slot=0;slot<save_slots;slot++) {
-    unsigned owned=0,blank=0,foreign=0;
-    for(unsigned position=0;position<game_slots;position++)for(unsigned bank=0;bank<2;bank++) {
-      if(!sd_read_sector(save_headers[(position*save_slots+slot)*2+bank],buf))return 0;
-      unsigned zero=1;for(unsigned i=0;i<512;i++)if(buf[i])zero=0;
-      if(zero)blank++;else if(equal(buf+16,story_id,STORAGE_ID_BYTES))owned++;else foreign++;
-    }
-    if(owned) {if(foreign||match>=0)return 0;match=slot;}
-    if(blank==2*game_slots&&empty<0)empty=slot;
-  }
-  int slot=match>=0?match:empty;
-  if(slot<0){say("Save pool full; no slot for this story.\n");return 0;}
-  save_owner=(unsigned)slot;mapped_game_slot=0;
-  return !save_owner||map_file(&pool,1,save_owner*2*SAVE_SECTORS);
-}
 #include "storage_create.inc"
 
 int storage_init(void) {
   sidecar_pending=metadata_active=0;
   indexed_pool=index_claimed=index_write_active=extent_count=0;
-  ready=saves_ready=story_count=story_omitted=directory_count=story_sectors=save_slots=game_slots=0;pool.size=0;fat_cached_sector=UINT32_MAX;
+  ready=saves_ready=story_count=story_omitted=directory_count=story_sectors=game_slots=0;sidecar_file.size=0;fat_cached_sector=UINT32_MAX;
   story_first_sector=UINT32_MAX;story_last_sector=0;
   if(!sd_read_sector(0,buf))return 0;
   uint32_t base=0,size=UINT32_MAX;
@@ -569,9 +531,7 @@ int storage_init(void) {
   game_directory=dir;
   int sidecar=select_sidecar();
   saves_ready=sidecar>0;
-  /* Existing shared pools remain usable; fresh cards need only stories. */
-  if(sidecar==0&&pool.size)saves_ready=select_saves();
-  else if(sidecar==0) {
+  if(sidecar==0) {
     sidecar_pending=1;saves_ready=!(game_directory.attr&1);game_slots=5;mapped_game_slot=0;
   }
   if(!saves_ready)say("Saves disabled: invalid, conflicting or read-only save file/directory.\n");
@@ -586,26 +546,8 @@ int storage_select_save(unsigned slot) {
   if(!storage_saves_available()||slot>=game_slots)return 0;
   if(sidecar_pending){mapped_game_slot=slot;return 1;}
   if(slot==mapped_game_slot)return 1;
-  if(indexed_pool){if(index_map_pair(slot))return 1;saves_ready=0;return 0;}
-  /* Allocation was fully validated at mount. Remap just this pair, following
-   * the chain without repeating the expensive overlap scan for every menu row.
-   * Card changes during play are unsupported. Revoke writes on any read error. */
-  unsigned skip=(slot*save_slots+save_owner)*2*SAVE_SECTORS;
-  uint32_t c=pool.cluster;
-  while(skip>=sectors_per_cluster) {
-    if(!next_cluster(c,&c)||!cluster_valid(c)){saves_ready=0;return 0;}
-    skip-=sectors_per_cluster;
-  }
-  for(unsigned i=0;i<2*SAVE_SECTORS;) {
-    uint32_t lba=cluster_sector(c);
-    while(skip<sectors_per_cluster&&i<2*SAVE_SECTORS)
-      sector_map[STORY_SECTORS+i++]=lba+skip++;
-    if(i<2*SAVE_SECTORS) {
-      if(!next_cluster(c,&c)||!cluster_valid(c)){saves_ready=0;return 0;}
-      skip=0;
-    }
-  }
-  mapped_game_slot=slot;return 1;
+  if(index_map_pair(slot))return 1;
+  saves_ready=0;return 0;
 }
 int storage_read(unsigned file,unsigned sector,uint8_t *data) {
   if(!ready||file>STORAGE_SAVE_B||sector>=(file?SAVE_SECTORS:(story_bytes+511)/512)||

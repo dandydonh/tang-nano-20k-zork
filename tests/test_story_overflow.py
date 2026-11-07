@@ -11,7 +11,7 @@ from v3_fixture import make_story
 from v5_fixture import make_story as make_v5_story
 
 ROOT = Path(__file__).resolve().parents[1]
-from sd_image_fixture import make_image, POOL_SIZE
+from sd_image_fixture import make_image, POOL_SIZE, empty_sidecar
 
 alpha = make_story(name='alpha', release=701)
 vfive = make_v5_story()
@@ -27,13 +27,13 @@ with tempfile.TemporaryDirectory(prefix='zork-overflow-') as directory:
     image = Path(directory)/'card.img'
 
     def prepare(files, fat):
-        image.write_bytes(make_image(files+[('SAVES.BIN', bytes(POOL_SIZE))],
+        image.write_bytes(make_image(files+([('GAME24.SAV',empty_sidecar(alpha))] if any(name.startswith('GAME24.') for name,_ in files) else []),
                                      fat, 8 if fat == 16 else 64, False))
 
     def boot(commands, expected=0):
         result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
                                 capture_output=True, timeout=30,
-                                env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                                env=dict(os.environ, ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1'))
         assert result.returncode == expected, (result.stdout, result.stderr)
         if expected == 0:
             assert 'CORE ERROR' not in result.stdout and 'testfailed' not in result.stdout, result.stdout
@@ -48,13 +48,13 @@ with tempfile.TemporaryDirectory(prefix='zork-overflow-') as directory:
             output = boot('27\nN\n26\nn\ns\nq\n')
             assert 'more omitted' not in output and 'Page 2/2' in output, output
             assert output.count('Skipping BAD') == len(invalid), output
-            menu = re.findall(r'^\d+\. (\S+)$', output, re.M)
+            menu = re.findall(r'^\d+\. (\S+\.(?:DAT|Z3|Z5))$', output, re.M)
             assert menu == expected_menu, menu
             menus.append(menu)
             assert 'Choose a compatible story number.' in output
             assert f'Starting {expected_menu[-1]}\n' in output and 'alpha moved' in output
             assert 'saved' in output and 'savefailed' not in output and 'Saves disabled' not in output
-            # SAVES.BIN occurs after overflow and bad files. Saves must remain
+            # The sidecar occurs after overflow and bad files. Saves must remain
             # discoverable and confined to their own allocation.
             after = FatImage(image.read_bytes())
             after.assert_only_saves_changed(baseline)
@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix='zork-overflow-') as directory:
         prepare(invalid+valid[1:21], fat)
         output = boot('20\nq\n')
         assert 'more omitted' not in output and 'Starting GAME20.Z5\n' in output
-        assert len(re.findall(r'^\d+\. (\S+)$', output, re.M)) == 20
+        assert len(re.findall(r'^\d+\. (\S+\.(?:DAT|Z3|Z5))$', output, re.M)) == 20
 
         prepare(invalid+[('ONLY.Z3', alpha)], fat)
         output = boot('q\n')
@@ -86,4 +86,4 @@ with tempfile.TemporaryDirectory(prefix='zork-overflow-') as directory:
         prepare([], fat)
         assert 'No compatible V3/V5 stories' in boot('', expected=2)
 
-print('PASS larger catalog: FAT16/FAT32, alphabetical pages independent of copy order, invalid-file filtering, compact numbering, late save pool, save/reset/restore, V5, empty/single-story cases and unchanged story allocations')
+print('PASS larger catalog: FAT16/FAT32, alphabetical pages independent of copy order, invalid-file filtering, compact numbering, late sidecar, save/reset/restore, V5, empty/single-story cases and unchanged story allocations')

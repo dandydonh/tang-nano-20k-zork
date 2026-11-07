@@ -48,9 +48,9 @@ class Program:
 def run(program, commands='', expected=0):
     with tempfile.TemporaryDirectory(prefix='zork-streams-') as directory:
         image = Path(directory)/'card.img'
-        image.write_bytes(make_image(project_files(program.story(), save_slots=1), 16, 8, False))
+        image.write_bytes(make_image(project_files(program.story()), 16, 8, False))
         result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
-                                capture_output=True, env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                                capture_output=True, env=dict(os.environ, ZORK_SD_IMAGE=str(image),ZORK_TEST_DEFAULT_SLOT='1'))
         assert result.returncode == expected, (result.returncode, result.stdout, result.stderr)
         return result.stdout
 

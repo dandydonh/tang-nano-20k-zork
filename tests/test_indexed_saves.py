@@ -1,211 +1,138 @@
 #!/usr/bin/env python3
-"""Indexed pool capacity, real snapshots, atomic ownership and corruption tests."""
+"""Shared pools are unrelated files; sidecars retain indexed snapshot recovery."""
 import os
 from pathlib import Path
 import struct
 import subprocess
-import sys
 import tempfile
 from fat_helpers import FatImage
-from indexed_pool_helpers import sparse_card, pool_read, pool_write, pool_lba
+from indexed_pool_helpers import sparse_card, pool_lba, pool_read
+from sd_image_fixture import make_image, project_files, POOL_SIZE
+from save_pool_fixture import pool_header, checksum
 from v3_fixture import make_story
-from v5_fixture import make_story as make_v5_story
 
-ROOT = Path(__file__).resolve().parents[1]
-from sd_image_fixture import make_image
-from save_pool_fixture import pool_header, create_pool, checksum
+ROOT=Path(__file__).resolve().parents[1]
+with tempfile.TemporaryDirectory(prefix='zork-ignore-pool-') as directory:
+    work=Path(directory);image=work/'card.img';reads=work/'reads.log';writes=work/'writes.log'
 
+    def run(commands):
+        reads.unlink(missing_ok=True);writes.unlink(missing_ok=True)
+        env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_READ_LOG=str(reads),ZORK_WRITE_LOG=str(writes))
+        result=subprocess.run([ROOT/'impl/zork-host'],input=commands,text=True,capture_output=True,env=env,timeout=30,check=True)
+        assert 'CORE ERROR' not in result.stdout,result.stdout
+        return result.stdout,list(map(int,reads.read_text().splitlines())),list(map(int,writes.read_text().splitlines())) if writes.exists() else []
 
-def fresh_pool(games=3, positions=2):
-    header, size = pool_header(games, positions)
-    return header+header+bytes(size-1024)
+    alpha=make_story()
+    for fat in (16,32):
+        header,size=pool_header(3,5)
+        for contents in (bytes(POOL_SIZE),header+header+bytes(size-1024),b'bad index'+bytes(65536-9)):
+            # Compare identical allocation/layout; only mark the old entry deleted.
+            baseline=make_image([('ALPHA.Z3',alpha),('SAVES.BIN',contents)],fat,16 if fat==16 else 64,False)
+            layout=FatImage(baseline);entry=layout.file_entry('SAVES.BIN')
+            layout.data[entry]=0xe5;image.write_bytes(layout.data)
+            _,without,changed=run('q\n');assert not changed
+            image.write_bytes(baseline)
+            _,with_pool,changed=run('q\n');assert with_pool==without and not changed
+            pool_sectors=set(FatImage(baseline).sectors('SAVES.BIN'))
+            assert not pool_sectors.intersection(with_pool)
+            for commands in ('s\n0\nq\n','r\n0\nq\n','r\n1\n0\nq\n'):
+                _,_,changed=run(commands);assert not changed and image.read_bytes()==baseline
+            out,_,changed=run('n\ns\n5\nq\n');assert 'saved\n' in out
+            after=FatImage(image.read_bytes());assert after.file_bytes('SAVES.BIN')==contents
+            assert not pool_sectors.intersection(changed)
+            old_entry=FatImage(baseline).data[entry:entry+32]
+            assert after.data[entry:entry+32]==old_entry
+            # Allocated chain links are preserved too, including both FAT copies.
+            old=FatImage(baseline)
+            for cluster in old.chain(old.entry_cluster(entry)):
+                for copy in range(old.fats):
+                    at=old.fat_offset(cluster,copy)
+                    assert after.data[at:at+old.width]==old.data[at:at+old.width]
+            saved=image.read_bytes()
+            out,_,changed=run('r\n5\nl\nq\n')
+            assert 'alpha moved' in out and not changed and image.read_bytes()==saved
+            # Existing sidecar selection has identical reads with/without pool.
+            _,present,_=run('q\n');after.data[entry]=0xe5;image.write_bytes(after.data)
+            _,absent,_=run('q\n');assert present==absent
+        print(f'PASS FAT{fat}: legacy/indexed/malformed pools ignored, identical startup reads, no pool data/FAT/entry writes, lazy creation, cancellation and existing-sidecar restore')
 
+    # A cyclic allocated legacy chain must not affect play or automatic saves.
+    layout=FatImage(baseline);chain=layout.chain(layout.entry_cluster(layout.file_entry('SAVES.BIN')))
+    layout.set_next(chain[-1],chain[0]);image.write_bytes(layout.data)
+    out,_,changed=run('s\n5\nq\n');assert 'saved\n' in out
+    after=FatImage(image.read_bytes())
+    for cluster in chain:
+        assert after.next(cluster)==layout.next(cluster)
+        at=layout.cluster_offset(cluster);assert after.data[at:at+512]==layout.data[at:at+512]
+    print('PASS cyclic old pool chain ignored and preserved during automatic SAVE')
 
-with tempfile.TemporaryDirectory(prefix='zork-indexed-') as directory:
-    temp = Path(directory)
-    image = temp/'card.img'
-
-    def run(commands, cut=None):
-        env = dict(os.environ, ZORK_SD_IMAGE=str(image))
-        if cut is not None:
-            env['ZORK_CUT_AFTER_WRITES'] = str(cut)
-        result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
-                                capture_output=True, env=env, timeout=30)
-        assert result.returncode == (99 if cut is not None else 0), (result.stdout, result.stderr)
-        assert 'CORE ERROR' not in result.stdout and 'testfailed' not in result.stdout, result.stdout
-        return result.stdout
-
-    alpha, beta = make_story(), make_story(name='beta', release=2)
-    for fat in (16, 32):
-        image.write_bytes(make_image([('ALPHA.Z3', alpha), ('BETA.Z3', beta),
-                                      ('SAVES.BIN', fresh_pool())], fat, 8 if fat == 16 else 64, False))
-        before = image.read_bytes()
-        assert 'Saves disabled' not in run('1\nq\n') and image.read_bytes() == before
-        out = run('1\ns\n1\nn\ns\n2\nq\n')
-        assert out.count('saved\n') == 2 and 'savefailed' not in out, out
-        assert 'alpha home' in run('1\nr\n1\nl\nq\n')
-        assert 'alpha moved' in run('1\nr\n2\nl\nq\n')
-        assert 'saved' in run('2\nn\ns\n2\nq\n')
-        assert 'beta moved' in run('2\nr\n2\nl\nq\n')
-        layout = FatImage(image.read_bytes())
-        layout.assert_only_saves_changed(before)
-        assert layout.file_bytes('ALPHA.Z3') == alpha and layout.file_bytes('BETA.Z3') == beta
-        pool = layout.file_bytes('SAVES.BIN')
-        assert pool[1024:1028] == b'ZOWN' and pool[1056:1060] == b'ZOWN'
-        # Only the selected owner record in each index replica may change.
-        assert pool[1024:1088] == pool[1536:1600]
-        assert pool[1088:1536] == bytes(448) and pool[1600:2048] == bytes(448)
-        header, size = pool_header(3, 2)
-        image.write_bytes(make_image([('ZZZ.Z3', alpha), ('AAA.Z3', beta), ('SAVES.BIN', pool)],
-                                    fat, 8 if fat == 16 else 64, False))
-        assert 'alpha moved' in run('2\nr\n2\nl\nq\n')
-        assert 'beta moved' in run('1\nr\n2\nl\nq\n')
-        print(f'PASS FAT{fat} indexed pool: deferred claims, independent positions/owners, rename/reorder, metadata replicas and write bounds')
-
-    # V3/V5 snapshots retain their existing payload formats within indexed pools.
-    image.write_bytes(make_image([('ALPHA.Z3', alpha), ('VFIVE.Z5', make_v5_story()),
-                                  ('SAVES.BIN', fresh_pool())], 16, 8, False))
-    assert 'saved' in run('1\nn\ns\n2\nq\n')
-    assert 'saved' in run('2\ns\n1\nn\nr\n1\nq\n')
-    assert 'restored' in run('2\nr\n1\nq\n')
-    assert 'alpha moved' in run('1\nr\n2\nl\nq\n')
-    print('PASS indexed mixed V3/V5 persistent snapshots')
-
-    # Interrupt each write of first ownership allocation and snapshot creation.
-    image.write_bytes(make_image([('ALPHA.Z3', alpha), ('BETA.Z3', beta),
-                                  ('SAVES.BIN', fresh_pool())], 16, 8, False))
-    assert 'saved' in run('1\nn\ns\n1\nq\n')
-    baseline = image.read_bytes()
-    assert 'saved' in run('2\ns\n1\nq\n')
-    completed = FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
-    data_sector = struct.unpack_from('<I', completed, 28)[0]
-    payload = struct.unpack_from('<I', completed, data_sector*512+2*2*131072+8)[0]
-    writes = 2+(payload+511)//512+1
-    for cut in range(writes):
-        image.write_bytes(baseline)
-        run('2\ns\n1\n', cut=cut)
-        assert 'alpha moved' in run('1\nr\n1\nl\nq\n')
-        assert 'saved' in run('2\ns\n1\nq\n')
-        assert 'beta home' in run('2\nr\n1\nl\nq\n')
-    print(f'PASS all {writes} interrupted initial-claim/snapshot boundaries preserve neighboring owners and allow retry')
-
-    # Each redundant header/index copy can recover independently. Damage both
-    # records for one owner: existing other owners still restore; no new claims.
-    image.write_bytes(baseline)
-    for description, offsets in [('header A', [100]), ('header B', [612]),
-                                  ('owner A', [1024+28]), ('owner B', [1536+28])]:
-        layout = FatImage(baseline)
-        sectors = layout.sectors('SAVES.BIN')
-        for offset in offsets:
-            layout.data[sectors[offset//512]*512+offset%512] ^= 0x80
-        image.write_bytes(layout.data)
-        assert 'alpha moved' in run('1\nr\n1\nl\nq\n'), description
-    layout = FatImage(baseline)
-    sectors = layout.sectors('SAVES.BIN')
-    for offset in (1024+32, 1536+32):
-        layout.data[sectors[offset//512]*512+offset%512] = 0xff
-    image.write_bytes(layout.data)
-    assert 'alpha moved' in run('1\nr\n1\nl\nq\n')
-    before = image.read_bytes()
-    out = run('2\ns\nq\n')
-    assert 'Save index damaged' in out and 'savefailed' in out and image.read_bytes() == before
-    print('PASS redundant headers/owner records and fail-closed damaged-owner allocation')
-
-    # Repair an interrupted/corrupt replica before writing another snapshot.
-    layout = FatImage(baseline)
-    sectors = layout.sectors('SAVES.BIN')
-    layout.data[sectors[2]*512+28] ^= 0x80
-    image.write_bytes(layout.data)
-    assert 'saved' in run('1\ns\n2\nq\n')
-    repaired = FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
-    assert repaired[1024:1056] == repaired[1536:1568]
-    assert checksum(repaired[1024:1052]) == struct.unpack_from('<I', repaired, 1052)[0]
-
-    # Conflicting headers and duplicate ownership fail without writing anything.
-    for kind in ('both headers', 'conflicting headers', 'duplicate owner'):
-        layout = FatImage(baseline)
-        sectors = layout.sectors('SAVES.BIN')
-        if kind == 'both headers':
-            layout.data[sectors[0]*512+100] ^= 1
-            layout.data[sectors[1]*512+100] ^= 1
-        elif kind == 'conflicting headers':
-            header = bytearray(layout.file_bytes('SAVES.BIN')[:512])
-            header[40] = 1
-            struct.pack_into('<I', header, 508, checksum(header[:508]))
-            layout.data[sectors[1]*512:(sectors[1]+1)*512] = header
+    # Duplicate or nonsensical old entries must not disable story discovery.
+    for kind in ('duplicate','read-only','invalid cluster/size'):
+        layout=FatImage(baseline);entry=layout.file_entry('SAVES.BIN')
+        if kind=='duplicate':layout.data[entry+32:entry+64]=layout.data[entry:entry+32]
+        elif kind=='read-only':layout.data[entry+11]|=1
         else:
-            record = bytearray(layout.file_bytes('SAVES.BIN')[1024:1056])
-            struct.pack_into('<I', record, 24, 1)
-            struct.pack_into('<I', record, 28, checksum(record[:28]))
-            for sector in (2, 3):
-                layout.data[sectors[sector]*512+32:sectors[sector]*512+64] = record
-        image.write_bytes(layout.data)
-        before = image.read_bytes()
-        assert 'Saves disabled' in run('1\ns\nq\n') and image.read_bytes() == before, kind
+            layout.set_entry_cluster(entry,0xffffffff)
+            struct.pack_into('<I',layout.data,entry+28,0xffffffff)
+        image.write_bytes(layout.data);before=image.read_bytes()
+        out,trace,changed=run('s\n0\nr\n0\nq\n')
+        assert 'Starting ALPHA.Z3' in out and 'Saves disabled' not in out
+        assert not changed and image.read_bytes()==before
+    print('PASS duplicate, read-only and invalid-geometry SAVES.BIN entries ignored during play/cancellation')
 
-    # A damaged newest snapshot still falls back inside its own indexed pair.
-    image.write_bytes(baseline)
-    assert 'saved' in run('1\ns\n1\ny\nq\n')
-    layout = FatImage(image.read_bytes())
-    sectors = layout.sectors('SAVES.BIN')
-    layout.data[sectors[data_sector+256+1]*512+100] ^= 128
-    image.write_bytes(layout.data)
-    assert 'alpha moved' in run('1\nr\n1\nl\nq\n')
-    print('PASS replica repair, conflicting headers, duplicate ownership and snapshot corruption fallback')
+    # Sparse 1.22 GiB pool: compare exact boot read trace, without reading the
+    # card into memory. Any old chain/index traversal would change that trace.
+    layout=sparse_card(image,alpha,fragmented=True)
+    entry=layout['directory_lba']*512+96
+    with image.open('r+b') as stream:
+        stream.seek(entry);original=stream.read(1);stream.seek(entry);stream.write(b'\xe5')
+    _,without,changed=run('q\n');assert not changed
+    with image.open('r+b') as stream:stream.seek(entry);stream.write(original)
+    metadata=pool_read(image,layout,0,128)
+    _,present,changed=run('q\n')
+    assert without==present and len(present)<100 and not changed
+    pool_data={pool_lba(layout,i) for i in range(128)}
+    assert not pool_data.intersection(present)
+    assert pool_read(image,layout,0,128)==metadata
+    print(f'PASS fragmented 1.22 GiB SAVES.BIN: exact same {len(present)} boot reads as absent entry; no old index access or writes')
 
-    for kind in ('read only', 'story overlap', 'directory overlap', 'short chain', 'cycle'):
-        layout = FatImage(baseline)
-        entry = layout.file_entry('SAVES.BIN')
-        cluster = layout.entry_cluster(entry)
-        if kind == 'read only':
-            layout.data[entry+11] |= 1
-        elif kind == 'story overlap':
-            layout.set_entry_cluster(entry, layout.entry_cluster(layout.file_entry('ALPHA.Z3')))
-        elif kind == 'directory overlap':
-            layout.set_entry_cluster(entry, layout.entry_cluster(layout.entry('ZORK')))
+    # Indexed sidecar metadata must still reject unsupported ownership geometry.
+    for kind in ('owners','positions','owner identity'):
+        layout=FatImage(make_image(project_files(alpha,'ALPHA.Z3'),16,8,False))
+        sectors=layout.sectors('ALPHA.SAV')
+        if kind in ('owners','positions'):
+            for sector in sectors[:2]:
+                off=sector*512;header=bytearray(layout.data[off:off+512])
+                struct.pack_into('<I',header,12 if kind=='owners' else 16,2 if kind=='owners' else 4)
+                struct.pack_into('<I',header,508,checksum(header[:508]));layout.data[off:off+512]=header
         else:
-            layout.set_next(cluster, layout.eoc if kind == 'short chain' else cluster)
-        image.write_bytes(layout.data)
-        before = image.read_bytes()
-        assert 'Saves disabled' in run('1\ns\nq\n') and image.read_bytes() == before, kind
-    print('PASS indexed read-only pools, protected-allocation overlap and malformed/cyclic FAT chains fail without writes')
+            for sector in sectors[2:4]:
+                off=sector*512;layout.data[off+8]^=1
+                struct.pack_into('<I',layout.data,off+28,checksum(layout.data[off:off+28]))
+        image.write_bytes(layout.data);before=image.read_bytes()
+        out,_,changed=run('s\nq\n')
+        assert 'Saves disabled' in out and not changed and image.read_bytes()==before,kind
+    print('PASS indexed sidecars refuse foreign owners and invalid owner/position geometry')
 
-    # Default-size pool and all owners use a sparse multi-GiB FAT32 card; no
-    # whole-card or whole-pool bytearray allocation or physical SD access.
-    layout = sparse_card(image, alpha)
-    subprocess.run(['gcc', '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror',
-                    '-Wno-misleading-indentation', '-DHOST', '-Ifirmware', 'firmware/storage.c',
-                    'tests/indexed_capacity_tb.c', '-o', 'impl/indexed-capacity-test'], cwd=ROOT, check=True)
-    result = subprocess.run([ROOT/'impl/indexed-capacity-test', image, str(layout['story_lba'])],
-                            text=True, capture_output=True, timeout=120, check=True)
-    print(result.stdout.strip())
-    # Independently check the sparse filesystem and its large file geometry.
-    subprocess.run(['fsck.fat', '-n', str(image)], check=True, capture_output=True)
-
-    layout = sparse_card(image, alpha, games=1000, positions=5, fragmented=True)
-    assert 'saved' in run('n\ns\n5\nq\n')
-    assert 'alpha moved' in run('r\n5\nl\nq\n')
-    print('PASS fragmented default-size indexed pool and final-position gameplay/save/reset/restore')
-
-    layout = sparse_card(image, alpha, fragmented='excessive')
-    metadata = pool_read(image, layout, 0, 128)
-    out = run('s\nq\n')
-    assert 'Saves disabled' in out and 'savefailed' in out
-    assert pool_read(image, layout, 0, 128) == metadata
-    print('PASS excessive fragmentation safely disables indexed writes without overrunning the extent cache')
-
-    output = temp/'SAVES.BIN'
-    subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--output', output], check=True, capture_output=True)
-    header, size = pool_header()
-    assert output.stat().st_size == size == 1310785536
-    with output.open('rb') as stream:
-        assert stream.read(1024) == header+header
-        stream.seek(size-512)
-        assert stream.read() == bytes(512)
-    assert subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--output', output], capture_output=True).returncode != 0
-    for positions in (17, 20):
-        refused = temp/f'refused-{positions}.bin'
-        assert subprocess.run([sys.executable, ROOT/'tests/save_pool_fixture.py', '--positions', str(positions), '--output', refused], capture_output=True).returncode != 0
-        assert not refused.exists()
-    assert pool_header(1000, 16)[1] < 2**32
-    print('PASS streaming fresh-pool tool: exact 1000x5 size, zero data, overwrite refusal and 32-bit file-size bounds')
+    # Recover one damaged owner replica on confirmed SAVE. Read-only RESTORE
+    # must not repair metadata, and any interrupted repair retains position 1.
+    image.write_bytes(make_image(project_files(alpha,'ALPHA.Z3'),16,8,False))
+    assert 'saved' in run('s\n1\nq\n')[0]
+    layout=FatImage(image.read_bytes());sectors=layout.sectors('ALPHA.SAV')
+    layout.data[sectors[2]*512+28]^=128
+    image.write_bytes(layout.data);damaged=image.read_bytes()
+    out,_,changed=run('r\n1\nl\nq\n')
+    assert 'alpha home' in out and not changed and image.read_bytes()==damaged
+    out,_,changed=run('n\ns\n5\nq\n')
+    assert 'saved' in out and len(changed)==23
+    assert set(changed)<=set(sectors[2:4]+sectors[4+4*512:4+5*512])
+    repaired=FatImage(image.read_bytes()).file_bytes('ALPHA.SAV')
+    assert repaired[1024:1056]==repaired[1536:1568]
+    for cut in range(len(changed)):
+        image.write_bytes(damaged)
+        result=subprocess.run([ROOT/'impl/zork-host'],input='n\ns\n5\n',text=True,capture_output=True,
+                              env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_CUT_AFTER_WRITES=str(cut)),timeout=30)
+        assert result.returncode==99,(cut,result.stdout,result.stderr)
+        out,_,changed=run('r\n1\nl\nq\n')
+        assert 'alpha home' in out and not changed,(cut,out)
+    print('PASS read-only owner recovery, scoped metadata repair and all 23 interrupted repair/snapshot writes')

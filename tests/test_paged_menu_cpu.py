@@ -11,7 +11,7 @@ from indexed_pool_helpers import sparse_card, pool_lba
 from v3_fixture import make_story
 
 ROOT = Path(__file__).resolve().parents[1]
-from sd_image_fixture import dir_entry
+from sd_image_fixture import dir_entry, empty_sidecar
 
 with tempfile.TemporaryDirectory(prefix='zork-menu-cpu-') as directory:
     work = Path(directory)
@@ -38,12 +38,23 @@ with tempfile.TemporaryDirectory(prefix='zork-menu-cpu-') as directory:
         directory_bytes += dir_entry('SAVES.BIN', layout['chain'][0], layout['size'])
         stream.seek(layout['directory_lba']*512)
         stream.write(directory_bytes+bytes(32768-len(directory_bytes)))
+    # Allocate an independent committed sidecar in the unused gap before the
+    # pool (reassign the first few pool clusters; move SAVES.BIN past them).
+    sidecar=empty_sidecar(last);needed=(len(sidecar)+layout['spc']*512-1)//(layout['spc']*512)
+    sidecar_chain=layout['chain'][:needed];remaining=layout['chain'][needed:]
+    with image.open('r+b') as stream:
+        for copy in range(2):
+            off=(layout['fat_lba']+copy*layout['fat_sectors'])*512+sidecar_chain[-1]*4
+            stream.seek(off);stream.write(struct.pack('<I',0x0fffffff))
+        directory_bytes=directory_bytes[:-32]+dir_entry('G0999.SAV',sidecar_chain[0],len(sidecar))
+        directory_bytes+=dir_entry('SAVES.BIN',remaining[0],(len(remaining))*layout['spc']*512)
+        stream.seek(layout['directory_lba']*512);stream.write(directory_bytes+bytes(32768-len(directory_bytes)))
+        stream.seek(pool_lba(layout,0)*512);stream.write(sidecar)
     subprocess.run(['fsck.fat', '-n', str(image)], check=True, capture_output=True)
     with image.open('rb') as stream:
         prefix = stream.read(16*1024*1024)
     (work/'impl/test-menu.hex').write_text(''.join(f'{value:02x}\n' for value in prefix))
-    allowed = [pool_lba(layout, 2), pool_lba(layout, 65)]
-    allowed += [pool_lba(layout, 128+index) for index in range(512)]
+    allowed = [pool_lba(layout, 4+index) for index in range(512)]
     assert max(allowed) < 32768
     (work/'impl/test-menu-save-sectors.hex').write_text(''.join(f'{value:08x}\n' for value in allowed))
     bench = (ROOT/'tests/soc_tb.v').read_text().split(' initial begin\n   $display')[0]
@@ -61,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix='zork-menu-cpu-') as directory:
    uart_line("s");wait(prompts==3);wait(status_updates==3);repeat(2000)@(negedge clk);
    uart_line("r");wait(prompts==4);wait(status_updates==4);repeat(2000)@(negedge clk);
    uart_line("l");wait(prompts==5);wait(status_updates==5);repeat(2000)@(negedge clk);
-   if(card.writes!=23)$fatal(1,"indexed owner/snapshot commit coverage %0d",card.writes);
+   if(card.writes!=21)$fatal(1,"indexed owner/snapshot commit coverage %0d",card.writes);
    $display("\\nPASS paged menu CPU: 1000 stories, UART N/P, PS2 choice 1000, indexed save/restore, %0d cycles / %0d reads / %0d writes",cycles,card.reads,card.writes);
    $finish;
  end

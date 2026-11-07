@@ -112,7 +112,15 @@ class FatImage:
                 struct.pack_into('<I', self.data, (self.base+sector)*512+492, 0xffffffff)
 
     def assert_only_saves_changed(self, before):
-        allowed = set(self.sectors('SAVES.BIN'))
+        directory = self.entry_cluster(self.entry('ZORK'))
+        names = []
+        for cluster in self.chain(directory):
+            for off in range(0, self.spc*512, 32):
+                at = self.cluster_offset(cluster)+off
+                entry = self.data[at:at+32]
+                if entry[0] not in (0, 0xe5) and entry[11] != 15 and entry[8:11] == b'SAV':
+                    names.append(entry[:8].decode().rstrip()+'.SAV')
+        allowed = {s for name in names for s in self.sectors(name)}
         assert len(before) == len(self.data)
         for sector in range(len(before)//512):
             if sector not in allowed:

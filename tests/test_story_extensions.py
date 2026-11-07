@@ -20,12 +20,12 @@ with tempfile.TemporaryDirectory(prefix='zork-extensions-') as directory:
     def boot(commands, expected=0):
         result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
                                 capture_output=True, timeout=30,
-                                env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                                env=dict(os.environ, ZORK_SD_IMAGE=str(image),ZORK_TEST_DEFAULT_SLOT='1'))
         assert result.returncode == expected, (result.stdout, result.stderr)
         assert (expected != 0 or 'CORE ERROR' not in result.stdout) and 'testfailed' not in result.stdout, result.stdout
         return result.stdout
 
-    for fat, size in ((16, 8), (32, 64)):
+    for fat, size in ((16, 16), (32, 64)):
         # Copy order differs from menu order; unsupported suffixes are ignored.
         files = [('GAMMA.Z5', gamma), ('BETA.Z3', beta), ('ALPHA.DAT', alpha),
                  ('IGNORE.Z4', alpha), ('IGNORE.Z30', alpha), ('SAVES.BIN', bytes(POOL_SIZE))]

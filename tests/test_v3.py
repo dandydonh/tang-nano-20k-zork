@@ -9,18 +9,19 @@ import tempfile
 from fat_helpers import FatImage
 from v3_fixture import make_story
 ROOT = Path(__file__).resolve().parents[1]
-from sd_image_fixture import make_image, project_files, POOL_SIZE, SAVE_SLOTS, validate_story
+from sd_image_fixture import make_image, project_files, POOL_SIZE, validate_story, empty_sidecar
 
 
 def run(image, commands='', expected=0):
     result = subprocess.run([ROOT/'impl/zork-host'], input=commands, text=True,
-                            capture_output=True, env=dict(os.environ, ZORK_SD_IMAGE=str(image)))
+                            capture_output=True, env=dict(os.environ, ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1'))
     assert result.returncode == expected, (result.returncode, result.stdout, result.stderr)
     return result.stdout, result.stderr
 
 
 def image_for(image, stories):
-    files = list(stories)+[('SAVES.BIN', bytes(POOL_SIZE))]
+    files = [(name,data) for name,data in stories]
+    files += [(name.rsplit('.',1)[0]+'.SAV',empty_sidecar(data)) for name,data in stories if len(data)>=64 and data[0] in (3,5)]
     image.write_bytes(make_image(files, 16, 8, False))
 
 
@@ -59,34 +60,23 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     # Invalid choices, CSI arrows and backspace must not become game commands.
     output, _ = run(image, '9\n\x1b[A\n2\x7f1\ns\nn\ns\nq\n')
     assert 'Choose a compatible story number.' in output and 'alpha ready' in output
-    baseline = image.read_bytes()
+    alpha_save = FatImage(image.read_bytes()).file_bytes('ALPHA.SAV')
     output, status = run(image, '2\nr\ns\nq\n')
     assert 'beta ready' in output and 'restorefailed' in output and 'saved' in output
-    assert 'BETA.DAT - Tang Nano 20K' in status
-    layout = FatImage(image.read_bytes())
-    pool = layout.sectors('SAVES.BIN')
-    unchanged_except(baseline, layout.data, set(pool[512:1024]))
-    # Switching back restores Alpha's moved state, not Beta's home state.
-    output, _ = run(image, '1\nr\nl\nq\n')
-    assert 'alpha moved' in output and 'restorefailed' not in output, output
-    # Names are not save identities: renaming keeps the original save pair.
+    assert FatImage(image.read_bytes()).file_bytes('ALPHA.SAV') == alpha_save
+    assert 'alpha moved' in run(image, '1\nr\nl\nq\n')[0]
+    # Both story and its same-stem sidecar move together on rename.
     renamed = FatImage(image.read_bytes())
-    entry = renamed.file_entry('ALPHA.DAT')
-    renamed.data[entry:entry+11] = b'RENAMED DAT'
+    for old,new in [('ALPHA.DAT',b'RENAMED DAT'),('ALPHA.SAV',b'RENAMED SAV')]:
+        entry=renamed.file_entry(old);renamed.data[entry:entry+11]=new
     image.write_bytes(renamed.data)
-    output, status = run(image, '2\nr\nl\nq\n')
-    assert 'alpha moved' in output and 'RENAMED.DAT - Tang Nano 20K' in status
-    # Replacing the same filename with a new release allocates another pair.
-    replaced = FatImage(image.read_bytes())
-    updated = make_story(4096, 'alpha', 3)
-    for i, sector in enumerate(replaced.sectors('RENAMED.DAT')):
-        replaced.data[sector*512:(sector+1)*512] = updated[i*512:(i+1)*512]
-    image.write_bytes(replaced.data)
-    baseline = image.read_bytes()
-    output, _ = run(image, '2\nr\ns\nq\n')
-    assert 'restorefailed' in output
-    unchanged_except(baseline, image.read_bytes(), set(pool[1024:1536]))
-    print('PASS startup menu/editing, story switching, save-slot isolation, rename continuity and new-release separation')
+    assert 'alpha moved' in run(image,'2\nr\nl\nq\n')[0]
+    # A foreign release cannot overwrite a same-stem sidecar.
+    renamed.data[renamed.sectors('RENAMED.DAT')[0]*512+3]^=1
+    image.write_bytes(renamed.data);baseline=image.read_bytes()
+    assert 'Saves disabled' in run(image,'2\ns\nq\n')[0]
+    assert image.read_bytes()==baseline
+    print('PASS menu editing, story isolation, paired rename and foreign identity refusal')
 
     # FAT directory/copy order must not determine display order or selection.
     image_for(image,[('ZULU.DAT',make_story(name='zulu',release=4)),
@@ -96,10 +86,10 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
         output,_=run(image,f'{choice}\ns\nq\n')
         assert expected_menu in output and f'{name} ready' in output
     # A different directory order must still find each story's existing slot.
-    saved=FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
+    layout=FatImage(image.read_bytes())
+    saved=[(name,layout.file_bytes(name)) for name in ('ALPHA.SAV','BETA.SAV','ZULU.SAV')]
     image.write_bytes(make_image([('BETA.DAT',beta),('ALPHA.DAT',alpha),
-                                  ('ZULU.DAT',make_story(name='zulu',release=4)),
-                                  ('SAVES.BIN',saved)],16,8,False))
+                                  ('ZULU.DAT',make_story(name='zulu',release=4))]+saved,16,8,False))
     for choice in (1,2,3):
         output,_=run(image,f'{choice}\nr\nq\n')
         assert expected_menu in output and 'restorefailed' not in output
@@ -148,8 +138,8 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
         assert layout.file_bytes('LARGE.DAT')==padded
         # Removing irrelevant padding preserves ownership of the saved snapshot.
         entry=layout.file_entry('LARGE.DAT')
-        pool=layout.file_bytes('SAVES.BIN')
-        image.write_bytes(make_image([('LARGE.DAT',large),('SAVES.BIN',pool)],16,8,False))
+        pool=layout.file_bytes('LARGE.SAV')
+        image.write_bytes(make_image([('LARGE.DAT',large),('LARGE.SAV',pool)],16,8,False))
         assert 'restorefailed' not in run(image,'r\nl\nq\n')[0]
     print('PASS padded V3 files, 12..64 KiB writable memory, last writable byte, full-state restore/reset and padding-independent identity')
 
@@ -158,20 +148,15 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     oversized+=b'padding'
     image_for(image,[('OVERSIZE.DAT',oversized)])
     assert 'declared length' in run(image,expected=2)[0]
-    # The previous 512 KiB pool is left untouched and cannot authorize writes.
-    image.write_bytes(make_image([('ALPHA.DAT',alpha),('SAVES.BIN',bytes(524288))],16,8,False))
-    baseline=image.read_bytes()
-    assert 'savefailed' in run(image,'s\nq\n')[0] and image.read_bytes()==baseline
-
     image_for(image,[('MAXIMUM.DAT',make_story(131070,dynamic=65535))])
     run(image,'s\ns\nq\n')
     baseline=image.read_bytes()
-    payload=struct.unpack_from('<I',FatImage(baseline).file_bytes('SAVES.BIN'),8)[0]
+    payload=struct.unpack_from('<I',FatImage(baseline).file_bytes('MAXIMUM.SAV'),2048+8)[0]
     save_writes=(payload+511)//512+1
     for cut in range(save_writes):
         image.write_bytes(baseline)
         result=subprocess.run([ROOT/'impl/zork-host'],input='r\nn\ns\n',text=True,capture_output=True,
-                              env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_CUT_AFTER_WRITES=str(cut)))
+                              env=dict(os.environ,ZORK_SD_IMAGE=str(image), ZORK_TEST_DEFAULT_SLOT='1',ZORK_CUT_AFTER_WRITES=str(cut)))
         assert result.returncode==99,(cut,result.stdout,result.stderr)
         recovered,_=run(image,'r\nl\nq\n')
         assert 'alpha home' in recovered and 'memoryfailed' not in recovered and 'restorefailed' not in recovered
@@ -180,73 +165,6 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     run(image,'r\nn\ns\nq\n')
     assert 'alpha moved' in run(image,'r\nl\nq\n')[0]
     print(f'PASS all {save_writes} maximum-memory snapshot interruption boundaries, including the last dynamic byte')
-
-    image_for(image, [('ALPHA.DAT', alpha)])
-    full = FatImage(image.read_bytes())
-    pool = full.sectors('SAVES.BIN')
-    for slot in range(SAVE_SLOTS):
-        full.data[pool[slot*512]*512:pool[slot*512]*512+8] = b'occupied'
-    image.write_bytes(full.data)
-    output, _ = run(image, 's\nq\n')
-    assert 'Save pool full' in output and 'savefailed' in output
-    assert image.read_bytes() == full.data
-    # A restored known slot remains usable even when no blank slots remain.
-    image_for(image, [('ALPHA.DAT', alpha)])
-    run(image, 's\nn\ns\nq\n')
-    owned = FatImage(image.read_bytes())
-    pool = owned.sectors('SAVES.BIN')
-    for slot in range(1, SAVE_SLOTS):
-        owned.data[pool[slot*512]*512:pool[slot*512]*512+8] = b'occupied'
-    image.write_bytes(owned.data)
-    assert 'alpha moved' in run(image, 'r\nl\nq\n')[0]
-    for kind in ('mixed', 'duplicate'):
-        broken = FatImage(owned.data)
-        target = pool[256 if kind=='mixed' else 512]*512
-        source = pool[0]*512
-        broken.data[target:target+512] = broken.data[source:source+512]
-        if kind == 'mixed':
-            broken.data[target+16] ^= 0x80
-        image.write_bytes(broken.data)
-        assert 'Saves disabled' in run(image, 's\nq\n')[0]
-        assert image.read_bytes() == broken.data
-    print('PASS full pool preserves unknown slots, existing owners retain restore access, mixed/duplicate ownership disables writes')
-
-    many = [(f'GAME{i:02}.DAT', make_story(4096, 'alpha', i+1)) for i in range(SAVE_SLOTS)]
-    for fat in (16,32):
-        image.write_bytes(make_image(list(reversed(many))+[('SAVES.BIN',bytes(POOL_SIZE))],fat,8 if fat==16 else 64,False))
-        baseline=image.read_bytes()
-        for choice in range(1,SAVE_SLOTS+1):
-            output,_=run(image,f'{choice}\nn\ns\nq\n')
-            assert f'{choice}. GAME{choice-1:02}.DAT' in output and f'Starting GAME{choice-1:02}.DAT' in output
-            assert 'savefailed' not in output and 'Saves disabled' not in output
-        FatImage(image.read_bytes()).assert_only_saves_changed(baseline)
-        for choice in range(1,SAVE_SLOTS+1):
-            output,_=run(image,f'{choice}\nr\nl\nq\n')
-            assert 'alpha moved' in output and 'restorefailed' not in output
-        # Multi-digit editing, empty/zero/out-of-range/overflow input and arrows.
-        output,_=run(image,'0\n21\n999\n\n1x\n19\x7f0\nq\n')
-        assert output.count('Choose a compatible story number.')==5 and 'Starting GAME09.DAT' in output
-        assert 'Starting GAME18.DAT' in run(image,'\x1b[A19\nq\n')[0]
-    image_for(image, many+[('EXTRA.DAT', alpha)])
-    output,_=run(image,'1\nq\n')
-    assert 'Page 1/2' in output and 'more omitted' not in output
-    assert 'Starting EXTRA.DAT' in output and '20. GAME18.DAT' in output
-    print('PASS FAT16/FAT32 sorted menu, multi-digit editing, every legacy save slot, fresh-process restore and pagination')
-
-    # Older ZMV5 pools retain their eight slots; expanding a copy keeps all bytes.
-    image.write_bytes(make_image([('ALPHA.DAT',alpha),('SAVES.BIN',bytes(2097152))],16,8,False))
-    assert 'savefailed' not in run(image,'n\ns\nq\n')[0]
-    old_pool=FatImage(image.read_bytes()).file_bytes('SAVES.BIN')
-    old=temp/'old-saves.bin';expanded=temp/'expanded-saves.bin'
-    old.write_bytes(old_pool)
-    args=[sys.executable,ROOT/'tests/sd_image_fixture.py','--save-slots','1','--expand-saves',old,'--output',expanded]
-    subprocess.run(args,check=True,capture_output=True)
-    assert old.read_bytes()==old_pool and expanded.read_bytes()==old_pool+bytes(POOL_SIZE-len(old_pool))
-    assert subprocess.run(args,capture_output=True).returncode!=0
-    image.write_bytes(make_image([('ALPHA.DAT',alpha),('SAVES.BIN',expanded.read_bytes())],16,8,False))
-    output,_=run(image,'r\nl\nq\n')
-    assert 'alpha moved' in output and 'restorefailed' not in output
-    print('PASS legacy 2 MiB saves, lossless expansion into a new file and overwrite refusal')
 
     # The fixtures are genuine V3 programs, checked by an independent interpreter.
     frotz = Path('/tmp/zork-tools/usr/games/dfrotz')
@@ -259,7 +177,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
         assert reference.stdout.count('alpha moved') == 2
         print('PASS independent Frotz execution of the original V3 fixture')
 
-    # Add only the missing pool to an existing card directory; never touch old saves/stories.
+    # Legacy fixture CLI preserves existing files when constructing old pools.
     stage = temp/'existing'
     (stage/'ZORK').mkdir(parents=True)
     (stage/'ZORK/ALPHA.DAT').write_bytes(alpha)
@@ -280,6 +198,7 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     assert 'beta ready' in run(new_image, '2\nq\n')[0]
     cli_image=temp/'twenty.img'
     cli_args=[sys.executable, ROOT/'tests/sd_image_fixture.py','--save-slots','1', '--output', cli_image, '--fat', '16', '--size-mib', '8']
+    many=[(f'GAME{i:02}.DAT',make_story(release=i+1)) for i in range(20)]
     for name,data in many:
         source=temp/name
         source.write_bytes(data)
@@ -287,4 +206,4 @@ with tempfile.TemporaryDirectory(prefix='zork-v3-') as directory:
     subprocess.run(cli_args,check=True,capture_output=True)
     assert 'Starting GAME18.DAT' in run(cli_image,'19\nq\n')[0]
     assert len(FatImage(cli_image.read_bytes()).file_bytes('SAVES.BIN'))==POOL_SIZE
-    print('PASS one-time save preparation preserves existing files and 20-story CLI preparation')
+    print('PASS legacy pool fixture preserves existing files and supports 20-story CLI cards')

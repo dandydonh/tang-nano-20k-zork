@@ -18,8 +18,8 @@ with tempfile.TemporaryDirectory(prefix='zork-paging-cpu-') as directory:
     intro=' '.join(['a lengthy paragraph must remain complete when the terminal does not wrap automatically']*12)
     layout=FatImage(make_image(project_files(make_story(intro=intro,input_size=120,stream_check=True)),16,16,False))
     layout.fragment('ZORK1.DAT',11000,stride=2)
-    layout.fragment('SAVES.BIN',12000,stride=2)
-    sectors=layout.sectors('SAVES.BIN')[:512]
+    layout.fragment('ZORK1.SAV',12000,stride=2)
+    sectors=layout.sectors('ZORK1.SAV')[4:516]
     assert max(sectors)<32768
     (work/'impl/test-wrap-save-sectors.hex').write_text(''.join(f'{v:08x}\n' for v in sectors))
     (work/'impl/test-wrap.hex').write_text(''.join(f'{v:02x}\n' for v in layout.data[:16*1024*1024]))

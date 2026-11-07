@@ -5,8 +5,11 @@ module sd_spi_model(input wire sck,cs,mosi,output reg miso);
   reg write_allowed;
   reg [7:0] incoming,command_bytes[0:5],send_byte;
   integer bit_count,command_count,read_ptr,write_ptr,mode,index,sector,reads,writes;
+  integer forbidden_first=-1,forbidden_last=-1;
   reg idle;integer i;integer block_addressing;reg [31:0] argument;
   initial begin
+    if($value$plusargs("forbidden_first=%d",forbidden_first))begin end
+    if($value$plusargs("forbidden_last=%d",forbidden_last))begin end
     block_addressing=!$test$plusargs("sdsc");
     for(i=0;i<4096;i=i+1)save_sectors[i]=32'hffffffff;
     if($test$plusargs("v5"))begin
@@ -56,6 +59,7 @@ module sd_spi_model(input wire sck,cs,mosi,output reg miso);
             16:begin if(argument!=512)$fatal(1,"bad block size");enqueue(0);end
             17:begin
               sector=block_addressing?argument:argument/512;if(sector<0||sector>=32768)$fatal(1,"read outside image");
+              if(sector>=forbidden_first&&sector<=forbidden_last)$fatal(1,"read ignored SAVES.BIN payload: LBA %0d",sector);
               reads=reads+1;enqueue(0);enqueue(255);enqueue(254);
               for(j=0;j<512;j=j+1)enqueue(disk[sector*512+j]);enqueue(255);enqueue(255);
             end

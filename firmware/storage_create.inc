@@ -65,7 +65,7 @@ static int sidecar_scan(unsigned mode,unsigned *alias_exists) {
           uint16_t alias[13];unsigned an=short_units(p,alias);
           if(units_match(units,n)||units_match(alias,an)) {
             if(found++)return -1;
-            pool=entry_at(p);
+            sidecar_file=entry_at(p);
           }
         }
         name.count=name.expected=0;
@@ -77,7 +77,7 @@ static int sidecar_scan(unsigned mode,unsigned *alias_exists) {
 }
 /* -1 refuses ambiguous/invalid names; 0 missing; 1 valid sidecar. */
 static int select_sidecar(void) {
-  struct entry legacy=pool;unsigned exists=0;
+  unsigned exists=0;
   if(sidecar_scan(0,&exists)!=1)return -1;
   unsigned stem=save_name_length-4,plain=stem>0&&stem<=8;
   for(unsigned i=0;i<11;i++)save_alias[i]=' ';
@@ -95,10 +95,10 @@ static int select_sidecar(void) {
     int found=sidecar_scan(1,&exists);
     if(found<0)return -1;
     if(found) {
-      if(pool.size!=SIDECAR_SECTORS*512U||!select_indexed_saves()||index_games!=1||game_slots!=5||owner_flags[0]!=1)return -1;
+      if(sidecar_file.size!=SIDECAR_SECTORS*512U||!select_indexed_saves()||index_games!=1||game_slots!=5||owner_flags[0]!=1)return -1;
       return 1;
     }
-    if(!exists){pool=legacy;return 0;}
+    if(!exists)return 0;
   }
   return -1;
 }
@@ -270,7 +270,7 @@ static int create_sidecar(void) {
       if(!directory_entry_write(start+at,entry))return 0;
     }else if(!directory_entry_write(start+at,entry))goto rollback;
   }
-  pool.cluster=create_clusters[0];pool.size=SIDECAR_SECTORS*512U;pool.attr=0x20;
+  sidecar_file.cluster=create_clusters[0];sidecar_file.size=SIDECAR_SECTORS*512U;sidecar_file.attr=0x20;
   directory_count=0;
   if(!protect_directory(root_start,!fat32)||!protect_directory(game_directory.cluster,0)||!select_indexed_saves())return 0;
   sidecar_pending=0;

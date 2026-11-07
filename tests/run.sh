@@ -73,14 +73,13 @@ for fat,tag,partitioned in ((16,'sd',False),(32,'fat32',True),(16,'menu',False),
     if tag=='v5':
         fixture=project_files(make_v5_story(dynamic=65535),'VFIVE.DAT')
     if tag=='slots':
-        fixture=project_files(make_story(),save_slots=2)
+        fixture=project_files(make_story())
     layout=FatImage(make_image(fixture,fat,16 if fat==16 else 64,partitioned))
-    for name,first in (() if tag=='slots' else (('VFIVE.DAT' if tag=='v5' else 'ZORK1.DAT',11000),('SAVES.BIN',12000))):
-        layout.fragment(name,first,stride=1 if (tag=='v5' and name=='VFIVE.DAT') or (fat==32 and name=='SAVES.BIN') else 2)
-    # FAT32 pool remains contiguous so all headers fit the model's 16 MiB.
-    assert max(layout.sectors('SAVES.BIN'))<32768
-    sectors=layout.sectors('SAVES.BIN')[:512]
-    if tag=='slots':sectors+=layout.sectors('SAVES.BIN')[10240:10752]
+    for name,first in (() if tag=='slots' else (('VFIVE.DAT' if tag=='v5' else 'ZORK1.DAT',11000),('VFIVE.SAV' if tag=='v5' else 'ZORK1.SAV',12000))):
+        layout.fragment(name,first,stride=1 if (tag=='v5' and name=='VFIVE.DAT') or (fat==32 and name.endswith('.SAV')) else 2)
+    save_name='VFIVE.SAV' if tag=='v5' else 'ZORK1.SAV'
+    sectors=layout.sectors(save_name)[4:516]
+    if tag=='slots':sectors+=layout.sectors(save_name)[516:1028]
     assert max(sectors)<32768
     Path(f'impl/test-{tag}-save-sectors.hex').write_text(''.join(f'{v:08x}\n' for v in sectors))
     # Only the first 16 MiB is backed by the model. All accessed sectors,
