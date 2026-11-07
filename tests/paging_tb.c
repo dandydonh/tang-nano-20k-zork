@@ -104,5 +104,35 @@ int main(int argc,char **argv){
   // Fixed V5 windows still page within the 32-row screen.
   screen.font=1;uart_input=wide;console_input_begin();before=occurrences("[MORE]");uart_input=space;
   for(unsigned i=0;i<30;i++)console_page(1);drain();assert(occurrences("[MORE]")==before+1);
-  puts("PASS board paging: height query/fallback, typeahead, page boundary, prompt erasure, UART/PS2, CRLF, long words");
+  // Unicode filename labels keep UTF-8 byte sequences intact on UART and use
+  // bounded ASCII fallbacks on the existing HDMI font, including V5 windows.
+  console_reset();console_page_height(0);console_width(7);row=1;column=0;
+  serial_len=0;serial[0]=0;
+  for(const char *p="12345";*p;p++)console_put(*p);
+  console_put(0x754c);console_put('X');drain();
+  assert(occurrences("12345\xe7\x95\x8c\r\nX")==1);
+  assert(cells[85]=='?'&&cells[86]==' '&&cells[87]=='X');
+  screen_reset();screen_cursor(1,1);serial_len=0;serial[0]=0;
+  screen_name_put(0xe9);screen_name_put(0x1f680);screen_name_put('X');drain();
+  assert(occurrences("\xc3\xa9\xf0\x9f\x9a\x80X")==1);
+  assert(cells[0]=='?'&&cells[1]=='?'&&cells[2]==' '&&cells[3]=='X');
+  assert(screen.col[0]==4);
+  // Editing reverses independent wrap gaps on UART/HDMI and clears combining
+  // marks with their base cells, preserving the preceding prompt/transcript.
+  console_reset();console_page_height(0);console_width(20);row=1;column=0;
+  for(unsigned i=0;i<2560;i++)cells[i]=' ';
+  for(unsigned i=0;i<78;i++)console_put('p');
+  console_edit_begin(0);console_put(0x754c);console_put(0x301);console_put(0xe9);
+  console_edit_clear();assert(row==1&&column==78);
+  for(unsigned i=0;i<78;i++)assert(cells[80+i]=='p');
+  for(unsigned i=158;i<2560;i++)assert(cells[i]==' ');
+  screen_reset();for(unsigned i=0;i<78;i++)screen_put('p');screen_flush();
+  screen_edit_begin(0);screen_unicode_put(0x754c);screen_unicode_put(0x301);screen_unicode_put(0xe9);screen_flush();
+  screen_edit_clear();assert(screen.row[0]==0&&screen.col[0]==78);
+  for(unsigned i=0;i<78;i++)assert(cells[i]=='p');
+  for(unsigned i=78;i<2560;i++)assert(cells[i]==' ');
+  console_edit_end();console_reset();row=1;column=0;drain();serial_len=0;serial[0]=0;
+  console_put(0xd800);console_put(0xfffe);console_put(0x110000);drain();
+  assert(serial_len==3&&serial[0]=='?'&&serial[1]=='?'&&serial[2]=='?');
+  puts("PASS board paging: height query/fallback, typeahead, page boundary, prompt erasure, UART/PS2, CRLF, long words, Unicode UART/HDMI filename labels");
 }

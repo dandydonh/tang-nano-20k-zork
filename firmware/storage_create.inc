@@ -13,15 +13,17 @@ static int metadata_write(uint32_t lba,const uint8_t *data) {
   int ok=sd_write_sector(lba,data);metadata_active=0;fat_cached_sector=UINT32_MAX;
   return ok;
 }
-static unsigned folded(unsigned c){return c>='a'&&c<='z'?c-32:c;}
 static unsigned short_units(const uint8_t *p,uint16_t *out) {
-  unsigned n=0;for(unsigned i=0;i<8&&p[i]!=' ';i++)out[n++]=p[i];
-  if(p[8]!=' '){out[n++]='.';for(unsigned i=8;i<11&&p[i]!=' ';i++)out[n++]=p[i];}
+  unsigned n=0;for(unsigned i=0;i<8&&p[i]!=' ';i++)out[n++]=oem_char(p[i]);
+  if(p[8]!=' '){out[n++]='.';for(unsigned i=8;i<11&&p[i]!=' ';i++)out[n++]=oem_char(p[i]);}
   return n;
 }
 static int units_match(const uint16_t *a,unsigned n) {
   if(n!=save_name_length)return 0;
-  for(unsigned i=0;i<n;i++)if(folded(a[i])!=folded(save_name[i]))return 0;
+  unsigned i=0,j=0;
+  while(i<n&&j<save_name_length)
+    if(folded(unicode_utf16(a,n,&i))!=folded(unicode_utf16(save_name,save_name_length,&j)))return 0;
+  if(i!=n||j!=save_name_length)return 0;
   return 1;
 }
 /* Walk the validated directory using complete LFN units or the short name.
@@ -38,14 +40,14 @@ static int sidecar_scan(unsigned mode,unsigned *alias_exists) {
         if(!p[0])return found;
         if(p[0]==0xe5){name.count=name.expected=0;continue;}
         if(p[11]==15){long_name_piece(&name,p);continue;}
-        uint16_t units[260];char text[256];unsigned n=short_units(p,units);
+        uint16_t units[260];char text[STORY_NAME_MAX+1];unsigned n=short_units(p,units);
         if(long_name_text(&name,p,text)) {
           n=0;while(n<name.count*13&&name.units[n]&&name.units[n]!=0xffff){units[n]=name.units[n];n++;}
         }
         if(mode==0) {
           /* Re-find selected story by its unique short alias and allocation. */
-          uint16_t alias[13];unsigned an=short_units(p,alias),i=0;
-          while(i<an&&stories[chosen].alias[i]&&(unsigned char)stories[chosen].alias[i]==alias[i])i++;
+          char alias[13];unsigned an=short_alias(p,alias),i=0;
+          while(i<an&&stories[chosen].alias[i]&&(unsigned char)stories[chosen].alias[i]==(unsigned char)alias[i])i++;
           if(i==an&&!stories[chosen].alias[i]&&entry_at(p).cluster==stories[chosen].file.cluster) {
             if(found++)return -1;
             unsigned dot=n;while(dot&&units[dot-1]!='.')dot--;
@@ -53,9 +55,6 @@ static int sidecar_scan(unsigned mode,unsigned *alias_exists) {
             save_name_length=dot+3;
             for(unsigned j=0;j<dot;j++)save_name[j]=units[j];
             save_name[dot]='s';save_name[dot+1]='a';save_name[dot+2]='v';
-            /* Display decoding is deliberately lossy for Unicode. Refuse a new
-             * name we cannot compare using complete FAT Unicode case folding. */
-            for(unsigned j=0;j<dot;j++)if(units[j]>126)return -1;
           }
         }else {
           if(equal(p,save_alias,11))*alias_exists=1;

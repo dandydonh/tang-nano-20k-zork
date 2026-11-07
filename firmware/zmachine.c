@@ -2,6 +2,7 @@
 #include "platform.h"
 #include "storage.h"
 #include "screen.h"
+#include "unicode.h"
 #define STACK_MAX 2048
 #define FRAME_MAX 96
 #define SAVE_MAGIC (version==5?0x36564d5aU:STORAGE_SAVE_MAGIC)
@@ -12,7 +13,14 @@ struct machine {
   uint16_t stack[STACK_MAX];
   struct frame frames[FRAME_MAX];
 };
+#ifdef HOST
 static struct machine vm;
+#else
+/* Preserve the snapshot layout while freeing BRAM for Unicode code/tables.
+ * Disjoint from FAT scratch below and story records above. */
+#define vm (*(struct machine *)0x300f0000U)
+#endif
+typedef char vm_region_fits[sizeof(struct machine)<=0x2000?1:-1];
 /* Optional snapshot trailer keeps ordinary ZMV5 snapshots byte-compatible. */
 struct output_streams {
   uint16_t table[16], length[16];
@@ -28,7 +36,12 @@ static uint8_t story_image[Z_STORY_MAX], dynamic_memory[65536];
 #define story_image ((volatile uint8_t *)0x30000000U)
 #define dynamic_memory ((volatile uint8_t *)0x30040000U)
 #endif
+#ifdef __riscv
+/* After the VM; disjoint from the Unicode output word at 0x300f2200. */
+#define sector_buf ((uint8_t *)0x300f2000U)
+#else
 static uint8_t sector_buf[512];
+#endif
 static uint16_t dynamic_size, objects, globals, dictionary, abbreviations;
 static int stopped, output_window, split_lines;
 static unsigned version;
@@ -117,6 +130,54 @@ static void reset_streams(void) {
   for(unsigned i=0;i<sizeof(streams);i++)((uint8_t*)&streams)[i]=0;
   streams.screen=1;
 }
+static const uint16_t default_unicode[]={
+  0xe4,0xf6,0xfc,0xc4,0xd6,0xdc,0xdf,0xbb,0xab,0xeb,0xef,0xff,0xcb,0xcf,
+  0xe1,0xe9,0xed,0xf3,0xfa,0xfd,0xc1,0xc9,0xcd,0xd3,0xda,0xdd,
+  0xe0,0xe8,0xec,0xf2,0xf9,0xc0,0xc8,0xcc,0xd2,0xd9,
+  0xe2,0xea,0xee,0xf4,0xfb,0xc2,0xca,0xce,0xd4,0xdb,
+  0xe5,0xc5,0xf8,0xd8,0xe3,0xf1,0xf5,0xc3,0xd1,0xd5,
+  0xe6,0xc6,0xe7,0xc7,0xfe,0xf0,0xde,0xd0,0xa3,0x153,0x152,0xa1,0xbf
+};
+/* Read the live story table: it may reside in mutable dynamic memory. */
+static unsigned unicode_table(unsigned *count) {
+  unsigned extension=version==5?rw(54):0,table=0;
+  if(extension) {
+    if(extension+2>storage_story_size())fatal("Unicode header extension");
+    if(rw(extension)>=3) {
+      if(extension+8>storage_story_size())fatal("Unicode header extension");
+      table=rw(extension+6);
+    }
+  }
+  *count=sizeof(default_unicode)/sizeof(default_unicode[0]);
+  if(table) {
+    if(table>=storage_story_size())fatal("Unicode table address");
+    *count=rb(table);
+    if(*count>97||table+1+2U**count>storage_story_size())fatal("Unicode table length");
+  }
+  return table;
+}
+static unsigned zscii_unicode(unsigned c) {
+  if(c==13||c=='\n')return '\n';
+  if(c==9||c==11)return ' ';
+  if(c>=32&&c<=126)return c;
+  if(c>=155&&c<=251) {
+    unsigned count,table=unicode_table(&count),i=c-155;
+    if(i<count){unsigned u=table?rw(table+1+2*i):default_unicode[i];return unicode_printable(u)?u:'?';}
+  }
+  return c>=127?'?':0;
+}
+static unsigned unicode_zscii(unsigned c) {
+  if(c>=32&&c<=126)return c;
+  if(c>0xffff||!unicode_printable(c))return 0;
+  unsigned count,table=unicode_table(&count);
+  for(unsigned i=0;i<count;i++)if(c==(table?rw(table+1+2*i):default_unicode[i]))return i+155;
+  return 0;
+}
+static void screen_unicode(unsigned c) {
+  if(!streams.screen||!c)return;
+  if(version==5)screen_unicode_put(c);
+  else if(!output_window)console_story_put(c);
+}
 static void zout(int c) {
   if(!c)return; /* ZSCII null has no effect. */
   if(streams.depth) {
@@ -124,7 +185,14 @@ static void zout(int c) {
     uint32_t at=(uint32_t)streams.table[i]+2+streams.length[i];
     if(at>=dynamic_size)fatal("memory stream outside dynamic memory");
     wb(at,c=='\n'?13:c);streams.length[i]++;
-  } else if(streams.screen){if(version==5)screen_put(c);else if(!output_window)console_story_put(c==13?'\n':c);}
+  } else if(version==5&&screen.pc_graphics&&(c==24||c==25||(c>=179&&c<=218))) {
+    if(streams.screen)screen_put(c);
+  } else screen_unicode(zscii_unicode(c));
+}
+static void unicode_out(unsigned c) {
+  if(!unicode_printable(c)||c>0xffff)return;
+  if(streams.depth){unsigned z=unicode_zscii(c);zout(z?z:'?');}
+  else screen_unicode(c);
 }
 static void output_stream(int16_t number,unsigned table,unsigned operands) {
   /* Flush at the selection boundary, before changing the screen route. */
@@ -208,7 +276,7 @@ static void status(void) {
   /* V3 status is separate from the scrolling transcript. */
   for(unsigned i=0;i<80;i++)status_put(i,' ');
   const char *s=storage_story_name();unsigned i=0;
-  while(*s)status_put(i++,*s++);
+  while(*s){unsigned c=unicode_utf8(&s);status_put(i++,c<128?c:'?');}
   s=" - Tang Nano 20K";while(*s)status_put(i++,*s++);
   char right[32];unsigned length=0;
   if(rb(1)&2) {
@@ -230,9 +298,36 @@ static void status(void) {
 }
 static char last_command[256];
 static unsigned last_length;
-static void input_echo(int c) { if(streams.screen&&!streams.depth){if(version==5)screen_put(c);else console_put(c);} }
-static void erase_story_input(unsigned len) {
-  while(len--){input_echo(8);input_echo(' ');input_echo(8);}
+static void input_echo(int c) {
+  if(streams.screen&&!streams.depth){
+    unsigned u=c==8?8:zscii_unicode((uint8_t)c);
+    if(version==5)screen_unicode_put(u);else console_put(u);
+  }
+}
+static void clear_story_input(void) {
+  if(streams.screen&&!streams.depth){if(version==5)screen_edit_clear();else console_edit_clear();}
+}
+/* Decode complete UTF-8 input events without leaking malformed continuations
+ * into ZSCII buffers. Preserve a following ASCII key/Enter on resynchronizing. */
+static int unicode_key(void) {
+  static unsigned pending,value,remaining,length;
+  for(;;) {
+    unsigned c=pending?pending-1:(unsigned)console_event_get();pending=0;
+    /* PS/2 key completion does not disturb an incomplete UART character. */
+    if(key_is_unicode(c))return c-KEY_UNICODE_BASE;
+    if(c>=0x110000)return c;
+    if(remaining) {
+      if(c<0x80||c>0xbf){remaining=0;pending=c+1;continue;}
+      value=(value<<6)|(c&63);if(--remaining)continue;
+      if((length==1&&value<0x80)||(length==2&&value<0x800)||(length==3&&value<0x10000)||
+          value>0x10ffff||(value>=0xd800&&value<=0xdfff))continue;
+      return value;
+    }
+    if(c<128)return c;
+    if(c>=0xc2&&c<=0xdf){value=c&31;remaining=length=1;}
+    else if(c>=0xe0&&c<=0xef){value=c&15;remaining=length=2;}
+    else if(c>=0xf0&&c<=0xf4){value=c&7;remaining=length=3;}
+  }
 }
 static void erase_input(unsigned len) {
   while(len--){ui_put(8);ui_put(' ');ui_put(8);}
@@ -243,7 +338,10 @@ static void read_line(unsigned text,unsigned parse) {
   if(version==5){max++;len=rb(text+1);if(len>=max)fatal("input preload length");}
   char draft[256];
   if(version==3&&max>120)max=120;
-  while(1) { int c=console_get();
+  unsigned initial_cells=0;
+  for(unsigned i=0;i<len;i++)initial_cells+=unicode_columns(zscii_unicode(rb(text+offset+i)));
+  if(version==5)screen_edit_begin(initial_cells);else console_edit_begin(initial_cells);
+  while(1) { int c=unicode_key();
     // Decode terminal CSI and SS3 keys, consuming unsupported sequences whole.
     if(escape==1){escape=(c=='['||c=='O')?2:0;continue;}
     if(escape==2){
@@ -256,18 +354,20 @@ static void read_line(unsigned text,unsigned parse) {
         if(recalled||!last_length)continue;
         draft_length=len;for(unsigned i=0;i<len;i++)draft[i]=rb(text+offset+i);
       }else if(!recalled)continue;
-      erase_story_input(len);
+      clear_story_input();
       const char *source=c==KEY_UP?last_command:draft;
       len=c==KEY_UP?last_length:draft_length;
       if(len>=max)len=max?max-1:0;
-      for(unsigned i=0;i<len;i++){wb(text+offset+i,source[i]);input_echo(source[i]);}
+      for(unsigned i=0;i<len;i++){wb(text+offset+i,(uint8_t)source[i]);input_echo((uint8_t)source[i]);}
       recalled=c==KEY_UP;continue;
     }
     if(c=='\r'||c=='\n')break;
-    if(c==8||c==127){if(len){len--;erase_story_input(1);}continue;}
-    if(c>=32&&c<127&&len+1<max){if(c>='A'&&c<='Z')c+=32;wb(text+offset+len++,c);input_echo(c);}
+    if(c==8||c==127){if(len){len--;clear_story_input();for(unsigned i=0;i<len;i++)input_echo(rb(text+offset+i));}continue;}
+    unsigned z=unicode_zscii(unicode_lower(c));if(!z)z=unicode_zscii(c);
+    if(z&&len+1<max&&(len||unicode_columns(c))){wb(text+offset+len++,z);input_echo(z);}
   }
   if(len){last_length=len;for(unsigned i=0;i<len;i++)last_command[i]=rb(text+offset+i);}
+  if(version==5)screen_edit_end();else console_edit_end();
   input_echo('\n');if(version==5)wb(text+1,len);else wb(text+offset+len,0);tokenize(text,parse,dictionary,0);
 }
 static uint32_t hash_bytes(uint32_t hash,const uint8_t *p,unsigned n) { while(n--)hash=(hash^*p++)*16777619U;return hash; }
@@ -308,7 +408,10 @@ static void menu_number(unsigned n) { if(n>=10)menu_number(n/10);ui_put('0'+n%10
 static int choose_save_slot_inner(int saving) {
   unsigned count=storage_game_slots();if(!count)return 0;
   if(count==1)return storage_select_save(0); /* Existing cards keep their flow. */
-  console_story_flush();if(version==5)screen_flush();say(saving?"\nSave slots for ":"\nRestore slots for ");say(storage_story_name());say(":\n");
+  console_story_flush();if(version==5)screen_flush();say(saving?"\nSave slots for ":"\nRestore slots for ");
+  const char *name=storage_story_name();
+  while(*name){unsigned c=unicode_utf8(&name);if(version==5)screen_name_put(c);else console_put(c);}
+  say(":\n");
   unsigned occupied=0;
   for(unsigned slot=0;slot<count;slot++) {
     if(!storage_select_save(slot))return 0;
@@ -459,8 +562,15 @@ static void execute(void) {
     case 16:screen_flush();ww(x,screen.row[screen.window]+1);ww(x+2,screen.col[screen.window]+1);break;
     case 17:screen_style(x);break;case 18:screen_flush();screen.buffer=x!=0;break;case 20:case 21:break;
     case 22:
-      v=console_get();if(v==27){unsigned c=console_get();if(c=='['||c=='O'){do{c=console_get();}while(c>=0x30&&c<0x40);v=c=='A'?129:c=='B'?130:c=='D'?131:c=='C'?132:27;}}
-      store(v==10?13:v==KEY_UP?129:v==KEY_DOWN?130:v);break;
+      for(;;) {
+        unsigned key=unicode_key();
+        if(key==27){unsigned c=unicode_key();v=27;if(c=='['||c=='O'){do{c=unicode_key();}while(c>=0x30&&c<0x40);v=c=='A'?129:c=='B'?130:c=='D'?131:c=='C'?132:27;}break;}
+        if(key==10||key==13){v=13;break;}
+        if(key==8||key==127){v=8;break;}
+        if(key==KEY_UP||key==KEY_DOWN){v=key==KEY_UP?129:130;break;}
+        v=unicode_zscii(key);if(v)break;
+      }
+      store(v);break;
     case 23:{unsigned form=n>3?a[3]:0x82;v=0;for(unsigned i=0;i<a[2];i++){p=y+i*(form&127);if((form&128?rw(p):rb(p))==x){v=p;break;}}store(v);branch(v);break;}
     case 24:store(~x);break;case 25:case 26:call(a,n,1);break;
     case 27:tokenize(x,y,n>2&&a[2]?a[2]:dictionary,n>3?a[3]:0);break;
@@ -478,7 +588,7 @@ static void execute(void) {
     case 4:screen_flush();v=screen.font;if(x==1||x==4){screen.font=x;store(v);}else store(x?0:v);break;
     case 9:undo_size=snapshot_size();for(unsigned i=0;i<undo_size;i++)undo_image[i]=snapshot_byte(i);store(1);break;
     case 10:if(!undo_size){store(0);break;}for(unsigned i=0;i<undo_size;i++)restore_byte(i,undo_image[i]);undo_size=0;store(2);display_move(screen.row[screen.window],screen.col[screen.window]);break;
-    case 11:zout(x>=32&&x<=126?x:'?');break;case 12:store(x>=32&&x<=126?3:0);break;
+    case 11:unicode_out(x);break;case 12:store(unicode_printable(x)?1|(unicode_zscii(x)?2:0):0);break;
     default:fatal("unknown EXT");
   }
 }

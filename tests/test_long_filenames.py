@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
             assert 'Score: 0' in status and 'Moves: 0' in status
 
         prepare([('UNICOD~1.Z3', 'Café on Mars.z3', alpha)], fat)
-        assert 'Starting Caf? on Mars.z3\n' in boot('q\n')[0]
+        assert 'Starting Café on Mars.z3\n' in boot('q\n')[0]
 
         # Pagination sorts display names, rather than misleading aliases.
         records = [(f'Z{i:02}~1.Z3', f'Adventure {24-i:02}.z3', alpha) for i in range(25)]
@@ -154,6 +154,9 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
         'incomplete': lambda records: records.pop(),
         'bad padding': lambda records: struct.pack_into('<H', records[0], 30, 65),
         'terminal escape': lambda records: struct.pack_into('<H', records[-1], 1, 27),
+        'C1 terminal control': lambda records: struct.pack_into('<H', records[-1], 1, 0x9b),
+        'unpaired high surrogate': lambda records: struct.pack_into('<H', records[-1], 1, 0xd800),
+        'unpaired low surrogate': lambda records: struct.pack_into('<H', records[-1], 1, 0xdc00),
         'too long': lambda records: None,
     }
     for label, mutate in mutations.items():
@@ -179,4 +182,4 @@ with tempfile.TemporaryDirectory(prefix='zork-long-names-') as directory:
     else:
         print('SKIP independent VFAT formatter/mtools checks (tools unavailable)')
 
-print('PASS VFAT names: FAT16/FAT32, fragmented directories, sector/cluster boundaries, displayed-name ordering/overflow, V3/V5, save identity, 13/26/255-unit names, Unicode substitution and malformed-chain fallback')
+print('PASS VFAT names: FAT16/FAT32, fragmented directories, sector/cluster boundaries, displayed-name ordering/overflow, V3/V5, save identity, 13/26/255-unit names, UTF-8 display and malformed-chain fallback')

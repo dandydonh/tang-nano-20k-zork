@@ -7,7 +7,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 subprocess.run(['gcc','-std=c99','-O2','-Wall','-Wextra','-Werror','-Ifirmware',
-                'firmware/output.c','tests/output_tb.c','-o','impl/output-test'],cwd=ROOT,check=True)
+                'firmware/output.c','firmware/unicode.c','tests/output_tb.c','-o','impl/output-test'],cwd=ROOT,check=True)
 
 def output(text,mode='story'):
     result=subprocess.run([ROOT/'impl/output-test',mode],input=text.encode(),capture_output=True,check=True)

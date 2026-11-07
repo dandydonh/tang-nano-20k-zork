@@ -6,6 +6,12 @@ struct screen_state { uint16_t row[2],col[2],split,window,style,font,buffer,word
 extern struct screen_state screen;
 void screen_reset(void);
 void screen_put(int c);
+/* Unicode scalars after the interpreter translates ZSCII. */
+void screen_unicode_put(unsigned c);
+void screen_name_put(unsigned c);
+void screen_edit_begin(unsigned initial_cells);
+void screen_edit_clear(void);
+void screen_edit_end(void);
 void screen_flush(void);
 void screen_split(unsigned lines);
 void screen_window(unsigned window);

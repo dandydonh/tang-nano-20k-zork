@@ -13,16 +13,23 @@ if ! command -v "$iverilog_bin" >/dev/null 2>&1; then
   ivl_args=(-B /tmp/zork-tools/usr/lib/x86_64-linux-gnu/ivl)
 fi
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
-  -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/screen.c firmware/storage.c tests/host_platform.c -o impl/zork-host
+  -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/unicode.c firmware/ps2.c firmware/screen.c firmware/storage.c tests/host_platform.c -o impl/zork-host
 python3 tests/test_output.py
+gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -Ifirmware \
+  firmware/ps2.c tests/ps2_tb.c -o impl/ps2-test
+impl/ps2-test
+gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -DHOST \
+  -ffunction-sections -fdata-sections -Ifirmware tests/key_events_tb.c \
+  -Wl,--gc-sections -o impl/key-events-test
+impl/key-events-test
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
   -fno-builtin -ffunction-sections -fdata-sections -Ifirmware \
-  tests/paging_tb.c firmware/output.c -Wl,--gc-sections -o impl/paging-test
+  tests/paging_tb.c firmware/output.c firmware/unicode.c firmware/ps2.c -Wl,--gc-sections -o impl/paging-test
 impl/paging-test
 python3 tests/test_dynamic_terminal.py
 python3 tests/test_paging.py
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -Ifirmware \
-  firmware/screen.c tests/v5_screen_tb.c -o impl/v5-screen-test
+  firmware/screen.c firmware/unicode.c tests/v5_screen_tb.c -o impl/v5-screen-test
 impl/v5-screen-test
 python3 tests/test_streams.py
 python3 tests/test_story.py
@@ -40,6 +47,9 @@ python3 tests/test_story_extensions.py
 python3 tests/test_story_overflow.py
 python3 tests/test_paged_menu.py
 python3 tests/test_long_filenames.py
+python3 tests/test_unicode_names.py
+python3 tests/test_unicode_text.py
+python3 tests/test_ps2_unicode.py
 python3 tests/test_local_stories.py
 python3 tests/test_planetfall.py
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s sdram_tb -o impl/tests/sdram \
@@ -159,4 +169,5 @@ python3 tests/test_dynamic_cpu.py
 python3 tests/test_long_filename_cpu.py
 python3 tests/test_indexed_save_cpu.py
 python3 tests/test_auto_save_cpu.py
+python3 tests/test_unicode_text_cpu.py
 python3 tests/test_paged_menu_cpu.py

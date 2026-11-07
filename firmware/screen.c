@@ -1,6 +1,10 @@
 #include "screen.h"
+#include "unicode.h"
 struct screen_state screen;
+static unsigned edit_column,edit_lines,edit_initial;
+static unsigned editing;
 void screen_reset(void) {
+  editing=0;
   for(unsigned i=0;i<sizeof(screen);i++)((uint8_t*)&screen)[i]=0;
   screen.font=1;screen.buffer=1;
   display_clear(0,32);display_move(0,0);
@@ -22,35 +26,68 @@ void screen_cursor(unsigned row,unsigned col) {
   if(w&&row>screen.split)screen_split(row);
   screen.row[w]=row-1;screen.col[w]=col-1;display_move(row-1,col-1);
 }
-static void screen_char(int c) {
+static void screen_glyph(int c,unsigned width) {
   unsigned w=screen.window,r=screen.row[w],col=screen.col[w];
   if(c==8){if(col)col--;else if(!w&&r>screen.split){r--;col=CONSOLE_COLUMNS-1;}screen.row[w]=r;screen.col[w]=col;display_move(r,col);return;}
   if(c==13)c='\n';
-  if(screen.pc_graphics){if(c>=179&&c<=218)c=c==179?'|':c==186?'#':c==196?'-':c==205?'=':'+';else if(c==24)c='^';else if(c==25)c='v';}
-  if(c!='\n'&&(c<32||c>126)){if(c==9||c==11)c=' ';else if(c>=155)c='?';else return;}
-  if(c=='\n'||col==CONSOLE_COLUMNS) {
+  if(c=='\n'||col+width>CONSOLE_COLUMNS) {
+    edit_lines++;
     col=0;r++;
     if(w){if(r>=screen.split)r=0;}
     else if(r==32){display_scroll(screen.split);r=31;}
     display_move(r,col);
-    if(!w)console_page(screen.split);
+    if(!w&&!editing)console_page(screen.split);
     if(c=='\n'){screen.row[w]=r;screen.col[w]=col;return;}
   }
   if(!w||screen.split)display_cell(r,col,c,screen.style&1);
-  screen.row[w]=r;screen.col[w]=col+1;
+  screen.row[w]=r;screen.col[w]=col+width;
+}
+static void screen_char(int c) {
+  if(c==13)c='\n';
+  if(screen.pc_graphics){if(c>=179&&c<=218)c=c==179?'|':c==186?'#':c==196?'-':c==205?'=':'+';else if(c==24)c='^';else if(c==25)c='v';}
+  if(c!='\n'&&c!=8&&(c<32||c>126)){if(c==9||c==11)c=' ';else if(c>=155)c='?';else return;}
+  screen_glyph(c,1);
+}
+void screen_name_put(unsigned c) {
+  screen_flush();screen_glyph(c,unicode_columns(c));
 }
 void screen_flush(void) {
   unsigned len=screen.word_length;if(!len)return;
+  if(len>sizeof(screen.word))fatal("invalid screen word length");
+  char word[80];for(unsigned i=0;i<len;i++)word[i]=screen.word[i];word[len]=0;
   screen.word_length=0;
-  if(screen.col[0]&&screen.col[0]+len>CONSOLE_COLUMNS)screen_char('\n');
-  for(unsigned i=0;i<len;i++)screen_char(screen.word[i]);
+  unsigned width=0;const char *p=word;
+  while(*p)width+=unicode_columns(unicode_utf8(&p));
+  if(screen.col[0]&&screen.col[0]+width>CONSOLE_COLUMNS)screen_char('\n');
+  p=word;while(*p){unsigned c=unicode_utf8(&p);screen_glyph(c,unicode_columns(c));}
+}
+void screen_unicode_put(unsigned c) {
+  if(c==13)c='\n';
+  if(c==9||c==11)c=' ';
+  if(c!='\n'&&c!=8&&!unicode_printable(c))return;
+  if(screen.buffer&&!screen.window&&c>32){
+    uint8_t bytes[4];unsigned count=unicode_encode(c,bytes);
+    if(screen.word_length+count>sizeof(screen.word))screen_flush();
+    for(unsigned i=0;i<count;i++)screen.word[screen.word_length++]=bytes[i];
+    return;
+  }
+  screen_flush();screen_glyph(c,c=='\n'||c==8?1:unicode_columns(c));
 }
 void screen_put(int c) {
-  if(screen.buffer&&!screen.window&&c>=33&&c<=126){
-    if(screen.word_length==CONSOLE_COLUMNS)screen_flush();
-    screen.word[screen.word_length++]=c;return;
-  }
-  screen_flush();screen_char(c);
+  if(screen.pc_graphics){if(c>=179&&c<=218)c=c==179?'|':c==186?'#':c==196?'-':c==205?'=':'+';else if(c==24)c='^';else if(c==25)c='v';}
+  if(c>=155)c='?';
+  screen_unicode_put(c);
+}
+void screen_edit_begin(unsigned initial_cells) {
+  screen_flush();
+  edit_column=screen.col[screen.window];edit_lines=0;edit_initial=initial_cells;
+  editing=1;
+}
+void screen_edit_end(void){screen_flush();editing=0;}
+void screen_edit_clear(void) {
+  screen_flush();unsigned cells=edit_initial+edit_lines*CONSOLE_COLUMNS+screen.col[screen.window]-edit_column;
+  while(cells--){screen_glyph(8,1);screen_glyph(' ',1);screen_glyph(8,1);}
+  screen_edit_begin(0);
 }
 void screen_erase(int window) {
   screen_flush();

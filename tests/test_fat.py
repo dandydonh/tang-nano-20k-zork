@@ -48,7 +48,7 @@ def check_fs(path, scratch):
 
 FSCK, MKFS, MCOPY, MMD = map(tool, ('fsck.fat', 'mkfs.fat', 'mcopy', 'mmd'))
 subprocess.run(['gcc', '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-misleading-indentation',
-                '-DHOST', '-Ifirmware', 'firmware/storage.c', 'tests/storage_tb.c',
+                '-DHOST', '-Ifirmware', 'firmware/storage.c', 'firmware/unicode.c', 'tests/storage_tb.c',
                 '-o', 'impl/storage-test'], cwd=ROOT, check=True)
 files = project_files((ROOT/'zork1.dat').read_bytes())
 with tempfile.TemporaryDirectory(prefix='zork-fat-') as directory:

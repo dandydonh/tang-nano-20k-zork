@@ -1,6 +1,8 @@
 #include "platform.h"
 #include "storage.h"
 #include "screen.h"
+#include "unicode.h"
+#include "ps2.h"
 #ifndef REG
 #define REG(n) (*(volatile uint32_t *)(0x20000000U+(n)))
 #endif
@@ -61,10 +63,15 @@ void display_move(unsigned r,unsigned c) {
   display_row=r;display_col=c;row=r;column=c;
 }
 void display_cell(unsigned r,unsigned c,int ch,unsigned inverse) {
-  if(r>=32||c>=79)return;
+  unsigned width=unicode_columns(ch);
+  if(r>=32||c>79||(c==79&&width))return;
   if(display_row!=r||display_col!=c)display_move(r,c);
   if(display_inverse!=inverse){serial_string(inverse?"\033[7m":"\033[0m");display_inverse=inverse;}
-  TEXT[r*80+c]=ch|(inverse?128:0);REG(20)=ch;display_col=c+1;column=c+1;
+  if(width)TEXT[r*80+c]=(ch<128?ch:'?')|(inverse?128:0);
+  if(width==2&&c+1<79)TEXT[r*80+c+1]=' '|(inverse?128:0);
+  uint8_t bytes[4];unsigned count=unicode_encode(ch,bytes);
+  for(unsigned i=0;i<count;i++)REG(20)=bytes[i];
+  display_col=c+width;column=c+width;
 }
 void display_clear(unsigned first,unsigned last) {
   for(unsigned r=first;r<last;r++){
@@ -80,17 +87,6 @@ void display_scroll(unsigned top) {
   display_inverse=0;
   display_row=31;display_col=0;row=31;column=0;
 }
-static const uint8_t keymap[128]={
- [0x1c]='a',[0x32]='b',[0x21]='c',[0x23]='d',[0x24]='e',[0x2b]='f',
- [0x34]='g',[0x33]='h',[0x43]='i',[0x3b]='j',[0x42]='k',[0x4b]='l',
- [0x3a]='m',[0x31]='n',[0x44]='o',[0x4d]='p',[0x15]='q',[0x2d]='r',
- [0x1b]='s',[0x2c]='t',[0x3c]='u',[0x2a]='v',[0x1d]='w',[0x22]='x',
- [0x35]='y',[0x1a]='z',[0x45]='0',[0x16]='1',[0x1e]='2',[0x26]='3',
- [0x25]='4',[0x2e]='5',[0x36]='6',[0x3d]='7',[0x3e]='8',[0x46]='9',
- [0x29]=' ',[0x5a]=13,[0x66]=8,[0x0d]=9,[0x4e]='-',[0x55]='=',
- [0x54]='[',[0x5b]=']',[0x5d]=92,[0x4c]=';',[0x52]=39,
- [0x41]=',',[0x49]='.',[0x4a]='/',[0x0e]='`'
-};
 /* Only a complete cursor report is consumed. Arrow keys and ordinary input
  * survive a probe, and a delayed reply cannot become a game command. */
 static void terminal_byte(unsigned c) {
@@ -110,34 +106,23 @@ static void terminal_byte(unsigned c) {
   }else for(unsigned i=0;i<report_length;i++)pending_keys[pending_count++]=report_bytes[i];
   report_length=0;
 }
-static int raw_console_get(void) {
-  static unsigned shifts,release,extended,caps,previous_cr;
+static int raw_console_event_get(void) {
+  static unsigned previous_cr;
   for(;;) {
     uint32_t v;
     if(pending_read<pending_count){v=pending_keys[pending_read++]|256;if(pending_read==pending_count)pending_read=pending_count=0;}
     else {v=REG(0);if(v&256){terminal_byte(v&255);continue;}}
     if(v&256){int c=v&255;if(c==10&&previous_cr){previous_cr=0;continue;}previous_cr=c==13;return c;}
-    v=REG(16);if(!(v&256))continue;unsigned scan=v&255;
-    if(scan==0xf0){release=1;continue;}if(scan==0xe0){extended=1;continue;}
-    if(scan==0x12||scan==0x59){unsigned mask=scan==0x12?1:2;if(release)shifts&=~mask;else shifts|=mask;}
-    else if(scan==0x58&&!release)caps^=1;
-    else if(!release&&extended&&(scan==0x75||scan==0x72)){
-      extended=0;return scan==0x75?KEY_UP:KEY_DOWN;
-    }
-    else if(!release&&scan<128&&(!extended||scan==0x5a)){
-      int c=keymap[scan];release=0;extended=0;
-      if(c>='a'&&c<='z'){if(!!shifts^caps)c-=32;}
-      else if(shifts){const char *normal="1234567890-=[];'/.,`";const char *upper="!@#$%^&*()_+{}:\"?><~";
-        for(unsigned i=0;normal[i];i++)if(c==normal[i]){c=upper[i];break;}if(c==92)c='|';}
-      if(c)return c;
-    }
-    release=0;extended=0;
+    v=REG(16);if(!(v&256))continue;
+    int key=ps2_key(v&255);if(key)return key;
   }
 }
-int console_get(void) {
+static int raw_console_get(void){return key_plain(raw_console_event_get());}
+int console_event_get(void) {
   screen_flush();console_story_flush();console_page_reset();
-  return raw_console_get();
+  return raw_console_event_get();
 }
+int console_get(void){return key_plain(console_event_get());}
 void console_more(void) {
   // Called at column zero after a newline. Preserve cells under the prompt,
   // and read keys without recursively flushing the active output word.
@@ -236,6 +221,7 @@ static void check_sdram(void) {
   for(unsigned bit=0;bit<21;bit++)if(memory[1U<<bit]!=(0x31415926U^bit))fatal("SDRAM address alias");
 }
 void platform_init(void){
+  ps2_reset();
   row=1;column=0;
   console_reset();
   // Initialize the serial terminal independently of its previous display state.

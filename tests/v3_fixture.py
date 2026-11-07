@@ -22,7 +22,7 @@ def zstring(text):
     return result
 
 
-def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, intro=None, input_size=80, stream_check=False):
+def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, intro=None, input_size=80, stream_check=False, unicode_input=False):
     assert size >= 4096
     story = bytearray(size)
     story[0] = 3
@@ -83,6 +83,9 @@ def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, in
             emit(0xe6, 0xbf, 22, 0xe5, 0x7f, 32)
         emit(0xbb)
     text(name+' ready')
+    if unicode_input:
+        for c in (ord('C'), ord('a'), ord('f'), 170):emit(0xe5,0x7f,c)
+        emit(0xbb)
     if intro:text(intro)
     tail = (length-64) & ~1
     emit(0x8d, (tail//2)>>8, (tail//2)&255, 0xbb)  # print_paddr beyond 64 KiB in large fixtures.
@@ -100,7 +103,7 @@ def make_story(size=4096, name='alpha', release=1, dynamic=2048, clock=False, in
     emit(0xe4, 0x0f, 5, 0, 5, 0x80)  # sread text=0x500, parse=0x580.
     emit(0xd0, 0x1f, 5, 0, 1, 20)   # loadb text,1 -> global 4.
     for letter, target in [('s', 'save'), ('r', 'restore'), ('n', 'move'), ('q', 'quit')]:
-        emit(0x41, 20, ord(letter))
+        emit(0x41, 20, 170 if unicode_input and letter=='n' else ord(letter))
         branch(target)
     emit(0x41, 19, 1)
     branch('away')

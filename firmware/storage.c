@@ -1,13 +1,16 @@
 /* FAT16/FAT32 discovery and lazy per-story save allocation. No hot swapping. */
 #include "platform.h"
 #include "storage.h"
+#include "unicode.h"
+#include "unicode_upper.h"
 #define STORY_SECTORS (V3_FILE_MAX/512U)
 #define SAVE_SECTORS STORAGE_BANK_SECTORS
 #define MAP_SECTORS (STORY_SECTORS+2*SAVE_SECTORS)
 #define DIR_SECTOR_LIMIT 2048U
 #define DIR_EXTENTS 4096U
 #define STORY_LIMIT STORAGE_STORY_LIMIT
-#define STORY_NAME_MAX 255U
+#define STORY_NAME_UNITS 255U
+#define STORY_NAME_MAX (3U*STORY_NAME_UNITS)
 #ifdef HOST
 static uint32_t sector_map[MAP_SECTORS];
 static uint8_t owner_flags[STORAGE_INDEX_GAMES];
@@ -24,7 +27,15 @@ static struct pool_extent pool_extents[STORAGE_INDEX_EXTENTS];
 #endif
 static unsigned indexed_pool,index_claimed,index_games,index_sectors,index_data,extent_count,index_write_active;
 static uint32_t index_write_sector;
-static uint8_t buf[512], fat_buf[512], story_id[STORAGE_ID_BYTES];
+static uint8_t story_id[STORAGE_ID_BYTES];
+#ifdef HOST
+static uint8_t buf[512],fat_buf[512];
+#else
+/* Sector scratch follows the creation directory list (0x300e4000..5fff).
+ * Keep the 8 KiB BRAM C-stack reserve as Unicode tables grow. */
+#define buf ((uint8_t *)0x300e6000U)
+#define fat_buf ((uint8_t *)0x300e6200U)
+#endif
 static uint32_t fat_cached_sector, fat_start, data_start, cluster_count, root_start, root_sectors;
 static uint32_t story_bytes;
 static uint32_t story_first_sector,story_last_sector;
@@ -66,9 +77,27 @@ static void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=v>>(8*i);
 static uint32_t index_hash(const uint8_t *p,unsigned n) {
   uint32_t h=2166136261U;while(n--)h=(h^*p++)*16777619U;return h;
 }
-static void say(const char *p) { while(*p)console_put(*p++); }
+static void say(const char *p) { while(*p)console_put(unicode_utf8(&p)); }
+static unsigned folded(unsigned c) {
+  unsigned low=0,high=sizeof(unicode_upper_ranges)/sizeof(unicode_upper_ranges[0]);
+  while(low<high) {
+    unsigned mid=(low+high)/2;const struct unicode_upper_range *r=&unicode_upper_ranges[mid];
+    unsigned first=((unsigned)r->plane<<16)|r->first;
+    if(c<first)high=mid;
+    else if(c-first>r->span)low=mid+1;
+    else return (c-first)%r->stride?c:((unsigned)r->plane<<16)+r->upper+(c-first);
+  }
+  return c;
+}
 static int equal(const uint8_t *a,const uint8_t *b,unsigned n) {
   while(n--)if(*a++!=*b++)return 0;return 1;
+}
+static unsigned oem_char(unsigned c){return c<128?c:unicode_oem437[c-128];}
+static unsigned short_alias(const uint8_t *p,char *text) {
+  unsigned n=0;
+  for(unsigned i=0;i<8&&p[i]!=' ';i++)text[n++]=p[i];
+  if(p[8]!=' '){text[n++]='.';for(unsigned i=8;i<11&&p[i]!=' ';i++)text[n++]=p[i];}
+  text[n]=0;return n;
 }
 static int cluster_valid(uint32_t c) {
   return c>=2&&c-2<cluster_count&&c<(fat32?0x0ffffff0U:0xfff0U);
@@ -159,16 +188,20 @@ static int long_name_text(const struct long_name *name,const uint8_t *p,char *te
   uint8_t checksum=0;
   for(unsigned i=0;i<11;i++)checksum=((checksum&1)?128:0)+(checksum>>1)+p[i];
   if(checksum!=name->checksum)return 0;
-  unsigned length=0,ended=0;
+  unsigned length=0,units=0,ended=0;
   for(unsigned i=0;i<name->count*13;i++) {
     unsigned c=name->units[i];
     if(ended){if(c!=0xffff)return 0;continue;}
     if(!c){ended=1;continue;}
-    if(c==0xffff||length==STORY_NAME_MAX||c<32||c==127||c=='"'||c=='*'||c=='/'||
+    if(c==0xffff||units==STORY_NAME_UNITS||c<32||(c>=127&&c<=159)||c=='"'||c=='*'||c=='/'||
         c==':'||c=='<'||c=='>'||c=='?'||c=='\\'||c=='|')return 0;
-    text[length++]=c<=126?c:'?';
+    unsigned at=i;
+    c=unicode_utf16(name->units,name->count*13,&at);
+    if(c==UINT32_MAX||at>STORY_NAME_UNITS)return 0;
+    units=at;i=at-1;
+    length+=unicode_encode(c,(uint8_t *)text+length);
   }
-  if(!length||length<=(name->count-1)*13)return 0;
+  if(!length||units<=(name->count-1)*13)return 0;
   text[length]=0;return 1;
 }
 static void collect_story(const uint8_t *p,const struct long_name *name);
@@ -264,8 +297,7 @@ static const char *validate_story(struct entry *e) {
 }
 static int name_after(const char *a,const char *b) {
   for(;;) {
-    unsigned x=(uint8_t)*a++,y=(uint8_t)*b++;
-    if(x>='a'&&x<='z')x-=32;if(y>='a'&&y<='z')y-=32;
+    unsigned x=folded(unicode_utf8(&a)),y=folded(unicode_utf8(&b));
     if(x!=y)return x>y;if(!x)return 0;
   }
 }
@@ -282,9 +314,12 @@ static void sift_story(unsigned at,unsigned count) {
 }
 static void collect_story(const uint8_t *p,const struct long_name *name) {
   struct candidate item;item.file=entry_at(p);
-  unsigned j=0;for(unsigned i=0;i<8&&p[i]!=' ';i++)item.alias[j++]=p[i];
-  item.alias[j++]='.';for(unsigned i=8;i<11&&p[i]!=' ';i++)item.alias[j++]=p[i];item.alias[j]=0;
-  if(!long_name_text(name,p,item.name))for(unsigned i=0;i<=j;i++)item.name[i]=item.alias[i];
+  unsigned j=short_alias(p,item.alias);
+  if(!long_name_text(name,p,item.name)) {
+    unsigned length=0;
+    for(unsigned i=0;i<j;i++)length+=unicode_encode(oem_char((uint8_t)item.alias[i]),(uint8_t *)item.name+length);
+    item.name[length]=0;
+  }
   const char *error=validate_story(&item.file);
   if(error){say("Skipping ");say(item.name);say(": ");say(error);say("\n");return;}
   item.version=buf[0];
@@ -323,7 +358,7 @@ static int select_story(void) {
       menu_pages[pages++]=start;unsigned used=0,end=start;
       while(end<story_count&&end-start<20) {
         unsigned length=0,n=end+1;do{length++;n/=10;}while(n);length+=2;
-        for(const char *p=stories[story_order[end]].name;*p;p++)length++;
+        for(const char *p=stories[story_order[end]].name;*p;)length+=unicode_columns(unicode_utf8(&p));
         unsigned lines=(length+width-1)/width;
         if(end>start&&used+lines>budget)break;
         used+=lines;end++;

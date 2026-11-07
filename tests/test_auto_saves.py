@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='zork-auto-save-') as directory:
         return command('mtype','-i',f'{image}@@{layout.base*512}',f'::/ZORK/{name}')
 
     command('gcc','-std=c99','-O2','-Wall','-Wextra','-Werror','-Wno-misleading-indentation',
-            '-DHOST','-Ifirmware','firmware/storage.c','tests/auto_storage_tb.c','-o','impl/auto-storage-test')
+            '-DHOST','-Ifirmware','firmware/storage.c','firmware/unicode.c','tests/auto_storage_tb.c','-o','impl/auto-storage-test')
     image.write_bytes(make_image([('ALPHA.Z3',make_story())],16,8,False))
     print(command(ROOT/'impl/auto-storage-test',image).decode().strip())
     clean()
@@ -174,16 +174,16 @@ with tempfile.TemporaryDirectory(prefix='zork-auto-save-') as directory:
     print('PASS fragmented save creation across 2564 isolated free clusters')
 
     original=make_image([('ALPHA.Z3',alpha)],16,8,False)
-    for kind in ('directory read only','full','fat mismatch','non ascii','too long','active fat'):
+    for kind in ('directory read only','full','fat mismatch','too long','active fat'):
         layout=FatImage(original)
         if kind=='directory read only':layout.data[layout.entry('ZORK')+11]|=1
         elif kind=='full':
             for c in range(2,layout.clusters+2):
                 if layout.next(c)==0:layout.set_next(c,0xfff7)
         elif kind=='fat mismatch':layout.data[layout.fat_offset(20,1)]=1
-        elif kind in ('non ascii','too long'):
+        elif kind=='too long':
             image.write_bytes(original)
-            target='Café.z3' if kind=='non ascii' else 'a'*252+'.z3'
+            target='a'*252+'.z3'
             source=work/target;source.write_bytes(alpha)
             command('mdel','-i',image,'::/ZORK/ALPHA.Z3')
             command('mcopy','-i',image,source,'::/ZORK/')
