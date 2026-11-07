@@ -10,8 +10,7 @@ project are licensed under the Apache License, Version 2.0, reproduced below.
 Zork game data is excluded
 -------------------------
 The Zork I game/story data, including zork1.dat and copies of that data inside
-assets/zork-sd.img or other generated disk images, is copyrighted third-party
-material. It is NOT licensed under this project's Apache License. Copyright
+generated disk images, is copyrighted third-party material. It is NOT licensed under this project's Apache License. Copyright
 in that game data remains with its respective rights holders. This LICENSE
 does not grant permission to redistribute, relicense or otherwise use that
 material. Obtain the game data separately with the appropriate permissions.
