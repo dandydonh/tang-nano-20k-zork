@@ -161,11 +161,12 @@ HDMI uses fallback glyphs for non-ASCII, and complex shaping is unsupported.
 
 ### Experimental onboard USB keyboard (3923)
 
-The `dev/usb-host-keyboard` branch adds an optional FPGA-Companion interface
-for the onboard BL616. The BL616 hosts the USB hub and keyboard; the FPGA
+An optional FPGA-Companion interface supports the onboard BL616.
+The BL616 hosts the USB hub and keyboard; the FPGA
 receives scan codes over the existing board SPI connections. USB keyboard input
-has been tested on a Tang Nano 20K 3923 with a powered hub; broader hardware
-compatibility remains unverified.
+has been tested with two keyboards on a Tang Nano 20K 3923 with a powered hub.
+Keyboard reconnect and cold/warm boot have also been verified on this setup;
+broader keyboard and hub compatibility remains unverified.
 
 Run `bash scripts/build_usb_host.sh` to build the separate experimental image:
 `impl/usb-host/impl/pnr/zork_usb.fs`. The script uses the existing initialized
@@ -187,8 +188,8 @@ configuration. A short `<config/>` response selects Companion v1.4.33's legacy
 fallback, which releases its SPI lock; returning zero instead leaves that lock
 held and blocks keyboard transfers. Companion's SD probe can add about two
 seconds to its startup.
-Keyboard repeat, reconnect/reset recovery, bursts and physical hub compatibility
-remain to be validated. F12 is reserved by Companion. The existing Compose/hex
+Keyboard repeat, bursts and broader hub compatibility remain to be validated.
+F12 is reserved by Companion. The existing Compose/hex
 decoder handles delivered scan codes.
 
 Focused CPU validation can be run with
