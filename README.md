@@ -1,7 +1,7 @@
 # Zork and V3/V5 stories on Tang Nano 20K
 
 [Project website](https://dandydonh.github.io/tang-nano-20k-zork/) ·
-[v0.6.5 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.6.5)
+[v0.7.0 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
 
 A standalone Z-machine V3/V5 story player for the Sipeed Tang Nano 20K
 (GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
@@ -16,7 +16,8 @@ Current source supports up to **1,000 stories** with a paged menu and automatic
 per-story `.sav` creation on the first confirmed SAVE, with **five positions**
 per story. Copy compatible story files to `/ZORK`; no separate save-file setup is needed.
 
-The v0.6.5 preview supports V3 and V5 stories. Tested V5 editions include
+The v0.7.0 preview adds Unicode filenames, UTF-8 game text/input and PS/2
+Compose/hex entry. It supports V3 and V5 stories. Tested V5 editions include
 Hitchhiker's Guide (release 31) and Beyond Zork (release 57); supply your own
 story files. It also includes MORE paging and terminal-aware V3 serial output.
 V5 games draw their own status, menus and split windows across a fixed
@@ -36,16 +37,17 @@ cd tang-nano-20k-zork
 See the build instructions below for required tools,
 FPGA programming, and copying stories to the card.
 
-## v0.6.5 preview downloads
+## v0.7.0 preview downloads
 
-The [v0.6.5 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.6.5)
-includes the optimized automatic-save firmware and both bundled stories:
+The [v0.7.0 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
+includes Unicode filename and game-text support, PS/2 composition, automatic
+per-story saves, and both bundled stories:
 
-- [zork.fs](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.6.5/zork.fs): Tang Nano 20K bitstream, GW2AR-18C.
-- [madman.z3](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.6.5/madman.z3): Madman, V3.
-- [mars2049ad.z5](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.6.5/mars2049ad.z5): Mars, 2049 AD, V5.
-- [STORY_NOTICES.md](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.6.5/STORY_NOTICES.md): story credits and distribution terms.
-- [SHA256SUMS](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.6.5/SHA256SUMS): checksums for the four files above.
+- [zork.fs](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/zork.fs): Tang Nano 20K bitstream, GW2AR-18C.
+- [madman.z3](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/madman.z3): Madman, V3.
+- [mars2049ad.z5](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/mars2049ad.z5): Mars, 2049 AD, V5.
+- [STORY_NOTICES.md](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/STORY_NOTICES.md): story credits and distribution terms.
+- [SHA256SUMS](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/SHA256SUMS): checksums for the four files above.
 
 Download all five files into one directory and verify them:
 
@@ -148,6 +150,14 @@ US layout letters, numbers, punctuation, Shift, Caps Lock, Enter and Backspace
 are supported. Up recalls the last nonempty command; Down restores your draft.
 Press Enter to submit a recalled command. History holds one command in RAM.
 Cursor editing is not supported.
+
+For accented characters, tap Right Alt or Menu, then two characters (for example,
+apostrophe then e produces é). For a Unicode code point, press Ctrl+Shift+U,
+release the chord, type one to six hex digits, then Enter or Space. Enter commits
+the character; press Enter again to submit the command. Escape cancels and
+Backspace edits pending input. The story must support the character in its
+ZSCII table. Serial input accepts UTF-8. Game text supports BMP characters;
+HDMI uses fallback glyphs for non-ASCII, and complex shaping is unsupported.
 
 ### Keyboard through USB serial
 
@@ -323,14 +333,15 @@ Snapshot payload sectors are written as each position is saved. Unused payload
 sectors retain previous card contents and must not be treated as zero-filled.
 The first save still allocates a FAT chain, so it can take longer than later saves.
 
+Firmware uses only per-story `.sav` files for saves.
+
 Each `.sav` belongs to its matching story and has checked metadata for
-V3/V5 snapshots. Full ASCII VFAT names, short-alias collisions, fragmented allocation,
+V3/V5 snapshots. Unicode VFAT names, short-alias collisions, fragmented allocation,
 directory growth, FAT16/FAT32 and active/mirrored FATs are supported. The
-resulting name must fit FAT's 255-character limit; a 255-character `.z3`/`.z5`
-name needs shortening because `.sav` adds a character. Non-ASCII stems currently
-disable saving to avoid ambiguous Unicode case comparisons; playback still
-works. A conflicting, malformed, read-only or foreign-identity sidecar is never
-replaced. Two different stories with the same stem must be renamed to distinct
+resulting name must fit FAT's 255 UTF-16-unit limit; a maximum-length `.z3`/`.z5`
+name needs shortening because `.sav` adds a unit. Supplementary characters are
+supported in filenames. Ambiguous Unicode case variants disable saving safely.
+A conflicting, malformed, read-only or foreign-identity sidecar is never replaced. Two different stories with the same stem must be renamed to distinct
 stems. Rename the story and its `.sav` together to retain access to its saves;
 the stored version/release/serial/checksum/size identity must still match.
 
@@ -347,12 +358,11 @@ Creation is not guaranteed atomic under power loss. Once created, alternating
 snapshot banks retain their existing checksum/fallback behavior. Keep the card
 inserted during play, and power off before removing it or managing files.
 
-The optimized initial-save firmware passed persistent flash programming/readback
-on 2026-11-07 using GW2AR-18C, cable 4/channel 0 and operation 9. The programmer
-reported success. Earlier user screenshots show position five recognized as
-Saved; optimized physical timing, successful restore, HDMI and power-cycle
-behavior for this exact build remain unobserved. See [build results](BUILD_RESULT.md)
-for the programmed bitstream hash and validation evidence.
+The v0.7.0 Unicode/PS2 image passed persistent flash programming/readback
+on 2026-11-07 using GW2AR-18C, cable 4/channel 0 and operation 9. Physical
+startup timing, keyboard, save/restore, HDMI and power-cycle behavior for this
+exact image remain unobserved. See [build results](BUILD_RESULT.md) for its
+hash and validation evidence.
 
 ### Saves and filesystem limits
 
@@ -369,8 +379,8 @@ The file's complete FAT chain is validated and cached as at most 4,096 allocatio
 runs. Excessive fragmentation disables saves safely. Directory, story and
 unrelated file allocations remain protected from snapshot writes.
 
-Firmware resolves existing file chains at startup and writes the selected story's
-currently selected save pair and checked metadata. First-save creation also
+At startup, firmware resolves the chosen story and its existing `.sav` chain.
+It writes the currently selected save pair and checked metadata. First-save creation also
 authorizes one exact FAT, FSInfo, new-file or directory sector for each synchronous write;
 that metadata permission is revoked after each operation. New files use the
 fixed date 1980-01-01 because there is no RTC; existing timestamps stay unchanged.

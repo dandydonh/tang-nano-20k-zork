@@ -1,4 +1,5 @@
 impl/
+*.log
 *.gprj.user
 __pycache__/
 *.[sS][aA][vV]

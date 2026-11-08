@@ -9,6 +9,117 @@ with five per game and automatic same-stem `.sav` creation. Up to 1,000 DAT/Z3/Z
 through UART or PS/2 with decimal labels and multi-digit input; a single compatible file starts automatically. This is a
 memory-capacity expansion, not a complete Z-machine conformance claim.
 
+## v0.7.0 preview package, 2026-11-08
+
+This release packages firmware source `cd5f3db` (followed by source-neutral
+cleanup and release documentation), with Unicode VFAT filenames and automatic
+Unicode sidecar naming, UTF-8 game text/input, and PS/2 Compose/hex input.
+Legacy `SAVES.BIN` is ignored and preserved. Existing per-story snapshot formats
+remain compatible. Game text is BMP-limited and input depends on the story's
+ZSCII table; HDMI retains non-ASCII fallback glyphs. Filename support includes
+supplementary characters. Complex shaping, bidi and grapheme editing are unsupported.
+
+Assets: `zork.fs`, unchanged `madman.z3`, unchanged `mars2049ad.z5`,
+`STORY_NOTICES.md`, and `SHA256SUMS` covering the four deliverables.
+No SD images, saves, private story inputs or log files are packaged.
+
+Released bitstream SHA-256:
+`52f808dd73b8623ccd0bbd7bb5098d9047f810dd321f0b19173cc8f55e5a4300`.
+Firmware binary SHA-256:
+`6cb16458830f94ae9100d8e541c589c1fcb667f561f5d76562c0cb455c01b73f`.
+Initialized hex SHA-256:
+`8ef009a362743d5f33e63bb558a13e0b41a9802cc2f7fe295ee83b6d26452ade`.
+Text/data/BSS: **54,721 / 28 / 1,588 bytes**, with an 8 KiB C-stack guard.
+Synthesis/place-route/setup/hold passed with zero violated endpoints.
+
+The full native/FAT/fault/menu/Unicode and peripheral/video RTL checks passed
+on 2026-11-07. Focused actual-RISC-V simulations passed through the PS/2 RTL
+receiver/FIFO: V3 Compose, first save, position five, reset/restore and hex input
+(**98,232,299 cycles / 247 reads / 61 writes**); V5 hex read_char, Greek/CJK
+line input, memory stream, first save and reset/restore
+(**87,813,367 cycles / 318 reads / 72 writes**). The full CPU matrix and complete
+Zork I walkthrough were not repeated for this image. Prior matrix results below
+apply to their identified earlier builds.
+
+Persistent external flash erase/program/verify passed on 2026-11-07 for this
+exact hash: GW2AR-18C, cable 4/channel 0, operation 9, JTAG ID `0x0000081B`,
+SPI flash ID `0x0B4017`, programmer exit 0, 30.7 seconds. Physical startup,
+keyboard/HDMI, save/restore and power-cycle behavior remain unobserved.
+First-sidecar FAT creation is not power-loss atomic and can require filesystem
+repair. V5 serial needs 32 usable rows (33 with Minicom's status bar).
+
+Release preparation reproduced the firmware binary and initialized hex using
+the persistent RISC-V toolchain and verified the existing bitstream manifest.
+Focused Unicode filename (FAT16/FAT32 with independent fsck), text and PS/2
+native regressions passed again during release preparation. No board
+programming or physical SD writes were performed during packaging.
+
+## Per-story save firmware cleanup, 2026-11-07
+
+Current source ignores `SAVES.BIN`. Directory discovery no longer selects the
+shared pool, and a missing story sidecar never falls back to it. Removed the
+fixed-pool bank scan, header cache, size constants and remapping path. Automatic
+same-stem `.sav` creation, five positions, indexed single-owner metadata and
+two-bank snapshot recovery retain their formats and protections.
+
+Native FAT16/FAT32 comparisons use identical cards with only the old pool entry
+marked present or deleted. Startup read sequences match exactly, including a
+fragmented 1.22 GiB pool: **17 reads** in either case, with no old index or payload
+access. Legacy, indexed, malformed, cyclic, duplicate, read-only and invalid
+cluster/size entries are ignored. First confirmed SAVE creates a sidecar while
+preserving old pool data, FAT links and directory entry. Play, cancellation and
+RESTORE perform no writes. Existing sidecars restore normally. This verifies
+storage operations in simulation, not physical startup time.
+
+Automatic allocation/fault/fsck, snapshot corruption and interrupted overwrites,
+V3/V5 maximum-memory snapshots, sorted 1,000-story catalogs and VFAT regressions
+pass, including all 23 owner-repair/snapshot interruption boundaries. Optional
+private-story checks skip when their files are absent. SDRAM, SPI/UART/PS2,
+two 720p scans and 100,000 TMDS-symbol tests pass.
+
+All **eight standard processor configurations** and **six focused CPU tests**
+pass, including SDHC/SDSC/FAT32, maximum V3/V5 memory, selectable saves, paging,
+live terminal resize, VFAT and the 1,000-story menu. Terminal rendering checks
+include explicit story-menu clears, fixed status/cursor, wrapping and the V5
+inverse upper window. Both focused save fixtures contain an ignored shared
+pool, whose payload reads are forbidden by the independent SPI model:
+
+- Existing sidecar, position five, reset/restore: **70,297,810 cycles / 127 reads /
+  21 writes**; no metadata writes on play/restore.
+- Missing sidecar, cancelled SAVE, first confirmed SAVE, position-five reset/
+  restore: **95,682,444 cycles / 246 reads / 60 writes**. Creation remains lazy
+  and retains the metadata/bank-header-only initialization optimization.
+- 1,000-story CPU menu, PS/2 selection 1000, save/restore: **177,031,285 cycles /
+  1,277 reads / 21 writes**.
+
+Validation ran in resumed batches after updating obsolete shared-pool fixtures
+and the terminal model; the eight standard CPU simulations were reused for
+subsequent renderer assertions.
+
+Final sandbox synthesis/place-route passes with zero setup/hold violations.
+Firmware text/data/BSS: **43,052 / 28 / 11,008 bytes**, with stack guard; text is
+1,352 bytes smaller. Resources: 3,118 logic units and 37/46 BSRAMs. Bitstream:
+`61477f0142a928ac4893a9b27fdff9746f04b69f11679c66ceef83fa35a84aca`.
+Firmware binary and initialized hex match; manifest hashes pass. Evidence:
+`impl/sidecar_cleanup_validation/validation.log`,
+`impl/sidecar_cleanup_validation/sidecar-build-final.log` and the individual
+CPU/native logs in that directory.
+
+This cleanup build passed **persistent flash programming/readback** on
+2026-11-07 at the user's explicit request. All manifest checks passed before
+unchanged `./program_flash.sh` ran with approved direct USB access. Target:
+GW2AR-18C ID `0x0000081B`, cable 4/channel 0, SPI flash `0x0B4017`, operation 9.
+Programmer: "SPI program and verify success!", exit 0, **30.42 seconds**.
+Programmed SHA-256:
+`61477f0142a928ac4893a9b27fdff9746f04b69f11679c66ceef83fa35a84aca`.
+
+The user previously observed a multi-second startup delay with `SAVES.BIN`
+present and no delay after removing it. Flash readback does not establish
+physical startup timing, saves/restores, HDMI or power-cycle behavior for this
+cleanup; those remain unobserved. No rebuild, physical SD file operations,
+programming-script changes, commit, push or release update performed.
+The published v0.6.5 tag and assets remain unchanged.
+
 ## v0.6.5 preview package
 
 The v0.6.5 preview packages the optimized automatic-save bitstream and the
