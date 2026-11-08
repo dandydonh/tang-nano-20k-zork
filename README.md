@@ -361,8 +361,8 @@ inserted during play, and power off before removing it or managing files.
 The v0.7.0 Unicode/PS2 image passed persistent flash programming/readback
 on 2026-11-07 using GW2AR-18C, cable 4/channel 0 and operation 9. Physical
 startup timing, keyboard, save/restore, HDMI and power-cycle behavior for this
-exact image remain unobserved. See [build results](BUILD_RESULT.md) for its
-hash and validation evidence.
+exact image remain unobserved. See the [v0.7.0 release notes](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
+for its hash and validation summary.
 
 ### Saves and filesystem limits
 
