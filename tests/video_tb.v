@@ -10,9 +10,11 @@ module video_tb;
    @(negedge cpu_clk);if(read_data!==d)$fatal(1,"CPU text readback");
  end endtask
  integer x=0,y=0,frame=0,active=0,checked=0;reg [23:0] expected;
- reg [7:0] ch,g;integer cx,cy;
+ reg [7:0] ch;reg [11:0] g;integer cx,cy,i;
  reg prev_de=0,prev_hs=0,prev_vs=0;reg [23:0] prev_rgb;
  initial begin
+   // Exercise every ASCII glyph, inverse glyph, cell and edge across the frame.
+   for(i=0;i<2560;i=i+1)put(i,i&255);
    put(0,8'hc1);put(1,8'h42);put(80,8'h43);put(2559,8'h5a);
    repeat(4)@(negedge clk);reset=0;
    // After reset release, de_pipe/glyph have one-cycle delay relative to x counter.
@@ -22,9 +24,9 @@ module video_tb;
      for(y=0;y<750;y=y+1)for(x=0;x<1650;x=x+1)begin
        if(x<1280&&y<720)active=active+1;
        expected=24'h101810;
-       if(x<1280&&y>=104&&y<616)begin
-         cx=x/16;cy=(y-104)/16;ch=dut.text[cy*80+cx];g=dut.font[(ch&127)*16+(y-104)%16];
-         if(((g>>(7-(x/2)%8))&1) ^ (ch>>7))expected=24'hc8e8c8;
+       if(x>=160&&x<1120&&y>=40&&y<680)begin
+         cx=(x-160)/12;cy=(y-40)/20;ch=dut.text[cy*80+cx];g=dut.font[(ch&127)*32+(y-40)%20];
+         if(((g>>(11-(x-160)%12))&1) ^ (ch>>7))expected=24'hc8e8c8;
        end
        @(negedge clk);
        if(de!==(x<1280&&y<720)||hs!==(x>=1390&&x<1430)||vs!==(y>=725&&y<730))$fatal(1,"video sync at %d,%d",x,y);

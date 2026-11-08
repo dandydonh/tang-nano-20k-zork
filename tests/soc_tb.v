@@ -5,8 +5,18 @@ module soc_tb;
  wire tx,sck,mosi,cs,miso,trap,tw;wire [11:0] ta;wire [7:0] td;reg [7:0] tr;
  reg [7:0] text[0:4095];
  wire sdram_clk,sdram_cke,sdram_cs,sdram_ras,sdram_cas,sdram_we;
+`ifdef ZORK_USB_HOST
+ reg usb_cs=1,usb_sck=0,usb_mosi=0;
+ wire usb_miso,usb_strobe;wire [7:0] usb_data;
+ companion_keyboard usb_keyboard(.clk(clk),.reset(reset),.spi_cs_n(usb_cs),
+   .spi_sck(usb_sck),.spi_mosi(usb_mosi),.spi_miso(usb_miso),
+   .key_data(usb_data),.key_strobe(usb_strobe));
+`endif
  wire [31:0] sdram_dq;wire [10:0] sdram_addr;wire [1:0] sdram_ba;wire [3:0] sdram_dqm;
  zork_soc dut(.clk(clk),.reset(reset),.uart_rx(rx),.uart_tx(tx),.ps2_clk(kclk),.ps2_data(kdata),
+`ifdef ZORK_USB_HOST
+   .usb_key_data(usb_data),.usb_key_strobe(usb_strobe),
+`endif
    .sd_miso(miso),.sd_clk(sck),.sd_mosi(mosi),.sd_cs(cs),.trap(trap),
    .text_addr(ta),.text_data(td),.text_write(tw),.text_read(tr),
    .O_sdram_clk(sdram_clk),.O_sdram_cke(sdram_cke),.O_sdram_cs_n(sdram_cs),
@@ -102,6 +112,25 @@ module soc_tb;
      end else begin send_uart("1");send_uart(13);handled_slots=handled_slots+1;end
    end
  end
+`ifdef ZORK_USB_HOST
+ task send_companion_byte(input [7:0] c);
+   integer b;begin
+     for(b=7;b>=0;b=b-1)begin
+       usb_sck=1;usb_mosi=c[b];#18.75;usb_sck=0;#18.75;
+     end
+   end
+ endtask
+ task send_key(input [7:0] c);
+   begin
+     usb_cs=0;#25;
+     send_companion_byte(1);send_companion_byte(1);
+     send_companion_byte(0);send_companion_byte(0);send_companion_byte(c);
+     #1;usb_cs=1;
+     // Pace human input; the unit test covers continuous maximum-rate SPI.
+     repeat(11500)@(negedge clk);
+   end
+ endtask
+`else
  task send_key(input [7:0] c);
    reg [10:0] frame;integer b;begin
      frame={1'b1,~^c,c,1'b0};
@@ -109,6 +138,7 @@ module soc_tb;
      kdata=1;repeat(500)@(negedge clk);
    end
  endtask
+`endif
  integer edit_index;
  task uart_line(input string line);
    integer n;begin for(n=0;n<line.len();n=n+1)send_uart(line[n]);send_uart(13);end

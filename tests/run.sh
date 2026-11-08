@@ -12,6 +12,9 @@ if ! command -v "$iverilog_bin" >/dev/null 2>&1; then
   vvp_bin=/tmp/zork-tools/usr/bin/vvp
   ivl_args=(-B /tmp/zork-tools/usr/lib/x86_64-linux-gnu/ivl)
 fi
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -s companion_keyboard_tb -o impl/tests/companion_keyboard \
+  tests/companion_keyboard_tb.v src/companion_keyboard.v
+"$vvp_bin" impl/tests/companion_keyboard
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
   -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/unicode.c firmware/ps2.c firmware/screen.c firmware/storage.c tests/host_platform.c -o impl/zork-host
 python3 tests/test_output.py

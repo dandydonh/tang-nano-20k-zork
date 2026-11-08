@@ -1,4 +1,7 @@
 module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
+`ifdef ZORK_USB_HOST
+ input wire [7:0] usb_key_data, input wire usb_key_strobe,
+`endif
  output wire uart_tx,sd_clk,sd_mosi,output reg sd_cs,
  output wire trap,
  output wire [11:0] text_addr,output wire [7:0] text_data,output wire text_write,
@@ -43,7 +46,12 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
   wire tx_busy;
   uart serial(.clk(clk),.reset(reset),.rx(uart_rx),.tx(uart_tx),.rx_data(urx),.rx_strobe(ustrobe),
     .tx_data(wdata[7:0]),.tx_start(io_write&&addr[7:0]==20&&!tx_busy),.tx_busy(tx_busy));
+`ifdef ZORK_USB_HOST
+  // USB profile uses the same set-2 decoder, with one keyboard source only.
+  assign pkey=usb_key_data; assign pstrobe=usb_key_strobe;
+`else
   ps2_receiver keyboard(.clk(clk),.reset(reset),.ps2_clk(ps2_clk),.ps2_data(ps2_data),.data(pkey),.strobe(pstrobe));
+`endif
   input_fifo uart_fifo(.clk(clk),.reset(reset),.push(ustrobe),.data(urx),.head(ufront),.valid(uvalid),
     .pop(io_access&&!wstrb&&addr[7:0]==0),.overflow(uover));
   input_fifo ps2_fifo(.clk(clk),.reset(reset),.push(pstrobe),.data(pkey),.head(pfront),.valid(pvalid),

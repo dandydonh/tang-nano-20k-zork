@@ -6,6 +6,10 @@ module zork_top (
     output wire [2:0] hdmi_data_p,
     output wire [2:0] hdmi_data_n,
     input wire uart_rx, ps2_clk, ps2_data, sd_miso,
+`ifdef ZORK_USB_HOST
+    input wire companion_cs_n, companion_sck, companion_mosi,
+    output wire companion_miso,
+`endif
     output wire uart_tx, sd_clk, sd_mosi, sd_cs,
     output wire led_n,
     // Gowin reserves these names for the SDRAM inside the GW2AR package.
@@ -46,7 +50,25 @@ module zork_top (
   wire [23:0] rgb;
   wire de, hs, vs;
   wire [11:0] text_addr;wire [7:0] text_data,text_read;wire text_write;
-  zork_soc soc(.clk(clk_27mhz),.reset(cpu_reset),.uart_rx(uart_rx),.uart_tx(uart_tx),
+  wire game_uart_rx, game_uart_tx;
+`ifdef ZORK_USB_HOST
+  wire [7:0] usb_key_data;
+  wire usb_key_strobe;
+  companion_keyboard usb_keyboard(.clk(clk_27mhz),.reset(cpu_reset),
+    .spi_cs_n(companion_cs_n),.spi_sck(companion_sck),.spi_mosi(companion_mosi),
+    .spi_miso(companion_miso),.key_data(usb_key_data),.key_strobe(usb_key_strobe));
+  // BL616 debug text is not game input. Pin 69 becomes inactive-high IRQ,
+  // rather than serial output, while Companion is running.
+  assign game_uart_rx=1'b1;
+  assign uart_tx=1'b1;
+`else
+  assign game_uart_rx=uart_rx;
+  assign uart_tx=game_uart_tx;
+`endif
+  zork_soc soc(.clk(clk_27mhz),.reset(cpu_reset),.uart_rx(game_uart_rx),.uart_tx(game_uart_tx),
+`ifdef ZORK_USB_HOST
+    .usb_key_data(usb_key_data),.usb_key_strobe(usb_key_strobe),
+`endif
     .ps2_clk(ps2_clk),.ps2_data(ps2_data),.sd_miso(sd_miso),.sd_clk(sd_clk),
     .sd_mosi(sd_mosi),.sd_cs(sd_cs),.trap(trap),.text_addr(text_addr),
     .text_data(text_data),.text_write(text_write),.text_read(text_read),

@@ -133,8 +133,8 @@ header; full payload validation happens during RESTORE. Back up a story's
 
 Use a PS/2 keyboard supporting scan code set 2, through a **3.3 V-safe PS/2
 adapter**. A USB keyboard with a passive adapter only works if the keyboard
-itself supports PS/2. A generic USB-only keyboard needs an external host adapter;
-this core does not implement a USB host.
+itself supports PS/2. The normal bitstream requires an external host adapter
+for a generic USB-only keyboard; an experimental onboard USB profile is below.
 
 | Signal | FPGA package pin / header label |
 | --- | --- |
@@ -158,6 +158,44 @@ the character; press Enter again to submit the command. Escape cancels and
 Backspace edits pending input. The story must support the character in its
 ZSCII table. Serial input accepts UTF-8. Game text supports BMP characters;
 HDMI uses fallback glyphs for non-ASCII, and complex shaping is unsupported.
+
+### Experimental onboard USB keyboard (3923)
+
+The `dev/usb-host-keyboard` branch adds an optional FPGA-Companion interface
+for the onboard BL616. The BL616 hosts the USB hub and keyboard; the FPGA
+receives scan codes over the existing board SPI connections. USB keyboard input
+has been tested on a Tang Nano 20K 3923 with a powered hub; broader hardware
+compatibility remains unverified.
+
+Run `bash scripts/build_usb_host.sh` to build the separate experimental image:
+`impl/usb-host/impl/pnr/zork_usb.fs`. The script uses the existing initialized
+CPU firmware and keeps normal build output under `impl/pnr/` intact. It does
+not program hardware. Normal `./build.sh` continues to build PS/2/UART support.
+
+The USB profile requires compatible Partner firmware and FPGA-Companion's
+**nano20k_v3923** BL616 build; ordinary factory programmer firmware does not
+host a keyboard. Installation and recovery procedures must be reviewed before
+flashing the BL616. Protocol reference source commit:
+`000fd039d793151822f08f1974df589fcba26d0b` in
+[FPGA-Companion](https://github.com/MiSTle-Dev/FPGA-Companion).
+
+This profile uses HDMI output and USB keyboard input. It disables physical
+PS/2 input and onboard UART game I/O: pin 69 is held high as Companion's
+inactive interrupt, and BL616 debug serial is ignored. Zork retains sole access
+to the physical SD card; Companion receives "no card" status and no menu
+configuration. A short `<config/>` response selects Companion v1.4.33's legacy
+fallback, which releases its SPI lock; returning zero instead leaves that lock
+held and blocks keyboard transfers. Companion's SD probe can add about two
+seconds to its startup.
+Keyboard repeat, reconnect/reset recovery, bursts and physical hub compatibility
+remain to be validated. F12 is reserved by Companion. The existing Compose/hex
+decoder handles delivered scan codes.
+
+Focused CPU validation can be run with
+`ZORK_TEST_USB_KEYBOARD=1 python3 tests/test_unicode_text_cpu.py` after building
+the native test interpreter (`impl/zork-host`) and configuring Verilator as
+described below. This sends SPI keyboard packets through the actual RISC-V CPU;
+it does not simulate the BL616 or a USB hub.
 
 ### Keyboard through USB serial
 
@@ -492,8 +530,9 @@ and expansion; the supplied private V5 stories are not redistributed.
 - 2,048-word Z stack and 96 call frames remain in block RAM. The linker reserves
   at least 8 KiB of native stack. No extra wiring or hardware is required.
 - HDMI carries DVI-compatible video, no audio. 80 columns by 32 rows, including
-  a fixed inverse status row for V3; V5 controls its own status/windows. Glyphs are 8x16 pixels,
-  doubled horizontally; console occupies 1280x512 centered in 720p.
+  a fixed inverse status row for V3; V5 controls its own status/windows. DejaVu
+  Sans Mono glyphs use native 12x20 pixel cells without stretching; the console
+  occupies 960x640 centered in 720p (160-pixel side and 40-pixel top/bottom margins).
 - Independent serial/79-column HDMI word wrapping, scrolling, `[MORE]` paging and basic line
   editing. No HDMI scrollback. One column remains free on an 80-column display.
 - V3/V5 implementation with bounded memory, not a general Z-machine

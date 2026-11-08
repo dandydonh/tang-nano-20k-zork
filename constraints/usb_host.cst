@@ -1,0 +1,10 @@
+// Additional pins for the ZORK_USB_HOST profile, Tang Nano 20K 3923.
+// FPGA-side wiring is unchanged from 3921. BL616 GPIO27=MOSI, GPIO30=MISO.
+IO_LOC "companion_cs_n" 86;
+IO_LOC "companion_sck" 13;
+IO_LOC "companion_mosi" 76;
+IO_LOC "companion_miso" 75;
+IO_PORT "companion_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "companion_sck" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_PORT "companion_mosi" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_PORT "companion_miso" IO_TYPE=LVCMOS33 DRIVE=8;

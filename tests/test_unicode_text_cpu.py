@@ -35,7 +35,8 @@ with tempfile.TemporaryDirectory(prefix='zork-unicode-v5-cpu-') as directory:
     forbidden = FatImage(original).sectors('SAVES.BIN')
     image, trace = work / 'card.img', work / 'writes.log'
     image.write_bytes(original)
-    ps2_unicode=bool(os.environ.get('ZORK_TEST_PS2_UNICODE'))
+    usb_keyboard=bool(os.environ.get('ZORK_TEST_USB_KEYBOARD'))
+    ps2_unicode=usb_keyboard or bool(os.environ.get('ZORK_TEST_PS2_UNICODE'))
     env=dict(os.environ,ZORK_SD_IMAGE=str(image),ZORK_WRITE_LOG=str(trace))
     commands='ĀĀΩ界\n5\nq'
     if ps2_unicode:
@@ -91,12 +92,17 @@ endmodule
     sources = ['tests/sd_spi_model.v', 'tests/sdram_model.v', 'src/sdram_controller.v',
                'src/zork_soc.v', 'src/uart.v', 'src/ps2_receiver.v', 'src/input_fifo.v',
                'src/spi_byte.v', 'third_party/picorv32.v']
-    with (ROOT / 'impl/unicode-text-v5-cpu-build.log').open('w') as log:
+    profile_tag='usb-keyboard-' if usb_keyboard else ''
+    profile_flags=[]
+    if usb_keyboard:
+        sources.append('src/companion_keyboard.v')
+        profile_flags=['-DZORK_USB_HOST']
+    with (ROOT / f'impl/{profile_tag}unicode-text-v5-cpu-build.log').open('w') as log:
         subprocess.run([verilator, '--binary', '--timing', '-j', '2', '-Wno-fatal', '-CFLAGS', '-O3',
-                        '--top-module', 'unicode_text_soc_tb', '--Mdir', str(work / 'obj'),
+                        *profile_flags, '--top-module', 'unicode_text_soc_tb', '--Mdir', str(work / 'obj'),
                         str(work / 'unicode_text_soc_tb.v'), *[str(ROOT / s) for s in sources]],
                        stdout=log, stderr=subprocess.STDOUT, check=True, timeout=180)
-    log = ROOT / 'impl/unicode-text-v5-cpu.log'
+    log = ROOT / f'impl/{profile_tag}unicode-text-v5-cpu.log'
     with log.open('w') as output:
         subprocess.run([work / 'obj/Vunicode_text_soc_tb', '+wrap', '+autosave',
                         f'+forbidden_first={min(forbidden)}', f'+forbidden_last={max(forbidden)}'],
@@ -107,5 +113,7 @@ endmodule
     assert text.count('values 3 156 158 159 ') == 2 and 'restored unicode Ā' in text, text
     assert 'values 3 ' in text and 'values 155 63 155 ' in text, text
     print(next(line for line in text.splitlines() if line.startswith('PASS Unicode V5 CPU:')))
-    if ps2_unicode:
+    if usb_keyboard:
+        print('PASS Companion SPI keyboard through actual CPU: Unicode hex scan input and save/reset/restore')
+    if ps2_unicode and not usb_keyboard:
         print('PASS actual PS/2 V5 CPU: hex U+0100 read_char, Greek/CJK AREAD, ASCII after reset and saved Unicode parser bytes')
