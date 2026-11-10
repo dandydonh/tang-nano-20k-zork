@@ -15,12 +15,32 @@ fi
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s companion_keyboard_tb -o impl/tests/companion_keyboard \
   tests/companion_keyboard_tb.v src/companion_keyboard.v
 "$vvp_bin" impl/tests/companion_keyboard
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -s startup_mode_tb \
+  -o impl/tests/startup_mode tests/startup_mode_tb.v src/startup_mode.v
+"$vvp_bin" impl/tests/startup_mode
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -DZORK_USB_HOST -s mode_routing_tb \
+  -o impl/tests/mode_routing tests/mode_routing_tb.v src/zork_top.v src/startup_mode.v \
+  src/zork_soc.v src/companion_keyboard.v src/input_fifo.v src/ps2_receiver.v \
+  src/uart.v src/spi_byte.v src/sdram_controller.v src/text_video.v \
+  src/tmds_encoder.v third_party/picorv32.v
+"$vvp_bin" impl/tests/mode_routing
+"$vvp_bin" impl/tests/mode_routing +serial
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -DZORK_USB_HOST -s input_queues_tb \
+  -o impl/tests/input_queues tests/input_queues_tb.v src/zork_soc.v \
+  src/companion_keyboard.v src/input_fifo.v src/ps2_receiver.v src/uart.v \
+  src/spi_byte.v src/sdram_controller.v third_party/picorv32.v
+"$vvp_bin" impl/tests/input_queues
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
   -DHOST -Ifirmware firmware/zmachine.c firmware/output.c firmware/unicode.c firmware/ps2.c firmware/screen.c firmware/storage.c tests/host_platform.c -o impl/zork-host
 python3 tests/test_output.py
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -Ifirmware \
   firmware/ps2.c tests/ps2_tb.c -o impl/ps2-test
 impl/ps2-test
+gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation \
+  -fno-builtin -ffunction-sections -fdata-sections -Ifirmware \
+  tests/input_sources_tb.c firmware/ps2.c firmware/unicode.c \
+  -Wl,--gc-sections -o impl/input-sources-test
+impl/input-sources-test
 gcc -std=c99 -O2 -Wall -Wextra -Werror -Wno-misleading-indentation -DHOST \
   -ffunction-sections -fdata-sections -Ifirmware tests/key_events_tb.c \
   -Wl,--gc-sections -o impl/key-events-test
@@ -68,6 +88,7 @@ python3 tests/test_planetfall.py
   tests/tmds_encoder_tb.v src/tmds_encoder.v
 "$vvp_bin" impl/tests/tmds
 ./scripts/build_firmware.sh
+python3 tests/test_input_modes_cpu.py
 python3 - <<'PY'
 from pathlib import Path
 import sys

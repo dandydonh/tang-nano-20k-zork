@@ -1,4 +1,4 @@
-// 720p60 timing. Centered 80x32 console, native 12x20 glyphs.
+// 720p60 timing. Left-aligned 80x32 console, native 12x20 glyphs.
 module text_video(input wire pixel_clk,reset,input wire cpu_clk,
  input wire [11:0] cpu_addr,input wire [7:0] cpu_data,input wire cpu_write,
  output reg [7:0] cpu_read,
@@ -17,7 +17,7 @@ module text_video(input wire pixel_clk,reset,input wire cpu_clk,
     else if(x==1649)begin x<=0;if(y==749)y<=0;else y<=y+1'b1;end
     else x<=x+1'b1;
   end
-  wire in_console=x>=160&&x<1120&&y>=40&&y<680;
+  wire in_console=x<960&&y>=40&&y<680;
   reg [6:0] column;
   reg [4:0] row,pixel_row;
   reg [3:0] pixel_column;
@@ -25,7 +25,7 @@ module text_video(input wire pixel_clk,reset,input wire cpu_clk,
   always @(posedge pixel_clk)begin
     if(reset)begin column<=0;row<=0;pixel_row<=0;pixel_column<=0;end
     else begin
-      if(x<160||x>=1120)begin column<=0;pixel_column<=0;end
+      if(x>=960)begin column<=0;pixel_column<=0;end
       else if(pixel_column==11)begin pixel_column<=0;column<=column+1'b1;end
       else pixel_column<=pixel_column+1'b1;
       if(x==1649)begin

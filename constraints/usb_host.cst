@@ -5,6 +5,8 @@ IO_LOC "companion_sck" 13;
 IO_LOC "companion_mosi" 76;
 IO_LOC "companion_miso" 75;
 IO_PORT "companion_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
-IO_PORT "companion_sck" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
-IO_PORT "companion_mosi" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
-IO_PORT "companion_miso" IO_TYPE=LVCMOS33 DRIVE=8;
+// Match the non-USB image's unused-input pullups during Partner boot.
+// The BL616 drives SCK/MOSI normally once its SPI master is active.
+IO_PORT "companion_sck" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "companion_mosi" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_PORT "companion_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;

@@ -1,6 +1,7 @@
 module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
 `ifdef ZORK_USB_HOST
  input wire [7:0] usb_key_data, input wire usb_key_strobe,
+ input wire [3:0] input_mode_status,
 `endif
  output wire uart_tx,sd_clk,sd_mosi,output reg sd_cs,
  output wire trap,
@@ -47,11 +48,13 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
   uart serial(.clk(clk),.reset(reset),.rx(uart_rx),.tx(uart_tx),.rx_data(urx),.rx_strobe(ustrobe),
     .tx_data(wdata[7:0]),.tx_start(io_write&&addr[7:0]==20&&!tx_busy),.tx_busy(tx_busy));
 `ifdef ZORK_USB_HOST
-  // USB profile uses the same set-2 decoder, with one keyboard source only.
-  assign pkey=usb_key_data; assign pstrobe=usb_key_strobe;
-`else
-  ps2_receiver keyboard(.clk(clk),.reset(reset),.ps2_clk(ps2_clk),.ps2_data(ps2_data),.data(pkey),.strobe(pstrobe));
+  wire [7:0] usb_front;
+  wire usb_valid,usb_over;
+  input_fifo usb_fifo(.clk(clk),.reset(reset),.push(usb_key_strobe),.data(usb_key_data),
+    .head(usb_front),.valid(usb_valid),.overflow(usb_over),
+    .pop(io_access&&!wstrb&&addr[7:0]==28));
 `endif
+  ps2_receiver keyboard(.clk(clk),.reset(reset),.ps2_clk(ps2_clk),.ps2_data(ps2_data),.data(pkey),.strobe(pstrobe));
   input_fifo uart_fifo(.clk(clk),.reset(reset),.push(ustrobe),.data(urx),.head(ufront),.valid(uvalid),
     .pop(io_access&&!wstrb&&addr[7:0]==0),.overflow(uover));
   input_fifo ps2_fifo(.clk(clk),.reset(reset),.push(pstrobe),.data(pkey),.head(pfront),.valid(pvalid),
@@ -82,6 +85,12 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
           16:begin ready<=1;io_data<={22'b0,pover,pvalid,pfront};end
           20:begin if(!tx_busy)ready<=1;end
           24:begin ready<=1;io_data<={31'b0,sdram_initialized};end
+`ifdef ZORK_USB_HOST
+          28:begin ready<=1;io_data<={22'b0,usb_over,usb_valid,usb_front};end
+          // bit0: selectable profile, bit1: serial chosen, bit2: host seen,
+          // bit3: role conflict. Used to identify actual mode on HDMI.
+          32:begin ready<=1;io_data<={28'b0,input_mode_status};end
+`endif
           default:ready<=1;
         endcase
       end

@@ -17,9 +17,16 @@ static unsigned terminal_rows=18,terminal_columns=80;
 static void terminal_size(void);
 static int high_capacity;
 static char status_line[80];
+static const char *input_mode_label;
 static void serial_string(const char *s){while(*s)REG(20)=*s++;}
+static void input_mode_header(void) {
+  if(!input_mode_label)return;
+  const char *label=input_mode_label;
+  for(unsigned i=0;i<80;i++)TEXT[i]=(*label?*label++:' ')|128;
+}
 void console_clear(void) {
   for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
+  input_mode_header();
   row=1;column=0;
   serial_string("\033[0m\033[2J\033[2;1H");
 }
@@ -107,14 +114,19 @@ static void terminal_byte(unsigned c) {
   report_length=0;
 }
 static int raw_console_event_get(void) {
-  static unsigned previous_cr;
+  static unsigned previous_cr,next_source;
   for(;;) {
+    unsigned source=next_source;
+    next_source=(next_source+1)%3;
     uint32_t v;
-    if(pending_read<pending_count){v=pending_keys[pending_read++]|256;if(pending_read==pending_count)pending_read=pending_count=0;}
-    else {v=REG(0);if(v&256){terminal_byte(v&255);continue;}}
-    if(v&256){int c=v&255;if(c==10&&previous_cr){previous_cr=0;continue;}previous_cr=c==13;return c;}
-    v=REG(16);if(!(v&256))continue;
-    int key=ps2_key(v&255);if(key)return key;
+    if(source==0) {
+      if(pending_read<pending_count){v=pending_keys[pending_read++]|256;if(pending_read==pending_count)pending_read=pending_count=0;}
+      else {v=REG(0);if(v&256){terminal_byte(v&255);continue;}}
+      if(v&256){int c=v&255;if(c==10&&previous_cr){previous_cr=0;continue;}previous_cr=c==13;return c;}
+    } else {
+      v=source==1?REG(16):REG(28);
+      if(v&256){int key=ps2_key_source(source-1,v&255);if(key)return key;}
+    }
   }
 }
 static int raw_console_get(void){return key_plain(raw_console_event_get());}
@@ -232,6 +244,16 @@ void platform_init(void){
   for(unsigned i=0;i<2560;i++)TEXT[i]=' ';
   check_sdram();
   if(!sd_init())fatal("SD initialization failed; insert prepared card and reset");
+  // Show the latched FPGA input mode on both HDMI and its serial stream.
+  // Legacy profiles return zero for this otherwise unused register.
+  unsigned input_mode=REG(32);
+  input_mode_label=(input_mode&1)?((input_mode&2)?"Input: serial terminal + PS/2":"Input: USB keyboard + PS/2"):0;
+  if(input_mode_label) {
+    input_mode_header();
+    const char *label=input_mode_label;
+    while(*label)console_put(*label++);
+    console_put('\n');
+  }
 }
 /* Freestanding compiler helpers. */
 void *memcpy(void *d,const void *s,unsigned n){uint8_t *a=d;const uint8_t *b=s;while(n--)*a++=*b++;return d;}

@@ -29,64 +29,70 @@ static const struct compose_pair { uint8_t first,second;uint16_t value; } pairs[
  {'<','<',0xab},{'>','>',0xbb},{'!','!',0xa1},{'?','?',0xbf},{'e','=',0x20ac},
  {'-','-',0x2013},{'-','_',0x2014}
 };
-static uint8_t down[32],consumed[32];
-static unsigned extended,released,pause_left,caps,mode,first,hex_value,hex_digits,hex_overflow;
-static int held(unsigned key){return (down[key/8]>>(key%8))&1;}
-void ps2_reset(void) {
-  for(unsigned i=0;i<32;i++)down[i]=consumed[i]=0;
-  extended=released=pause_left=caps=mode=first=hex_value=hex_digits=hex_overflow=0;
+struct keyboard_state {
+  uint8_t down[32],consumed[32];
+  unsigned extended,released,pause_left,caps,mode,first,hex_value,hex_digits,hex_overflow;
+};
+static struct keyboard_state keyboards[2];
+static int held(const struct keyboard_state *s,unsigned key){return (s->down[key/8]>>(key%8))&1;}
+void ps2_reset_source(unsigned source) {
+  if(source<2)keyboards[source]=(struct keyboard_state){0};
 }
+void ps2_reset(void) { ps2_reset_source(0);ps2_reset_source(1); }
+int ps2_key(unsigned scan) { return ps2_key_source(0,scan); }
 static int character(unsigned c){return KEY_UNICODE_BASE+c;}
-int ps2_key(unsigned scan) {
-  if(scan==0xaa||scan==0||scan==0xff){ps2_reset();return 0;}
-  if(pause_left){pause_left--;return 0;}
-  if(scan==0xe1){pause_left=7;extended=released=0;return 0;}
-  if(scan==0xe0){extended=1;return 0;}
-  if(scan==0xf0){released=1;return 0;}
-  if(scan>=128){extended=released=0;return 0;}
-  unsigned ext=extended,up=released,key=scan+(ext?128:0),mask=1U<<(key%8),was=held(key);
-  extended=released=0;
-  if(up){down[key/8]&=~mask;consumed[key/8]&=~mask;return 0;}
-  down[key/8]|=mask;
-  if(scan==0x58&&!ext){if(!was)caps^=1;return 0;}
+int ps2_key_source(unsigned source,unsigned scan) {
+  if(source>=2)return 0;
+  struct keyboard_state *s=&keyboards[source];
+  if(scan==0xaa||scan==0||scan==0xff){ps2_reset_source(source);return 0;}
+  if(s->pause_left){s->pause_left--;return 0;}
+  if(scan==0xe1){s->pause_left=7;s->extended=s->released=0;return 0;}
+  if(scan==0xe0){s->extended=1;return 0;}
+  if(scan==0xf0){s->released=1;return 0;}
+  if(scan>=128){s->extended=s->released=0;return 0;}
+  unsigned ext=s->extended,up=s->released,key=scan+(ext?128:0),mask=1U<<(key%8),was=held(s,key);
+  s->extended=s->released=0;
+  if(up){s->down[key/8]&=~mask;s->consumed[key/8]&=~mask;return 0;}
+  s->down[key/8]|=mask;
+  if(scan==0x58&&!ext){if(!was)s->caps^=1;return 0;}
   if((scan==0x12||scan==0x59||scan==0x14||scan==0x11)&&!ext)return 0;
   if(scan==0x14&&ext)return 0;
-  if(was&&(consumed[key/8]&mask))return 0;
+  if(was&&(s->consumed[key/8]&mask))return 0;
   if(ext&&(scan==0x11||scan==0x2f)) {
-    consumed[key/8]|=mask;mode=1;first=0;return 0;
+    s->consumed[key/8]|=mask;s->mode=1;s->first=0;return 0;
   }
-  unsigned shift=held(0x12)||held(0x59),ctrl=held(0x14)||held(0x94);
+  unsigned shift=held(s,0x12)||held(s,0x59),ctrl=held(s,0x14)||held(s,0x94);
   if(!ext&&scan==0x3c&&ctrl&&shift&&!was) {
-    consumed[key/8]|=mask;mode=2;hex_value=hex_digits=hex_overflow=0;return 0;
+    s->consumed[key/8]|=mask;s->mode=2;s->hex_value=s->hex_digits=s->hex_overflow=0;return 0;
   }
   unsigned c=ext?(scan==0x5a?13:scan==0x75?KEY_UP:scan==0x72?KEY_DOWN:0):keymap[scan];
   if(!c)return 0;
-  if(c>='a'&&c<='z'){if(!!shift^caps)c-=32;}
+  if(c>='a'&&c<='z'){if(!!shift^s->caps)c-=32;}
   else if(shift){const char *normal="1234567890-=[];'/.,`",*upper="!@#$%^&*()_+{}:\"?><~";
     for(unsigned i=0;normal[i];i++)if(c==(unsigned char)normal[i]){c=upper[i];break;}if(c==92)c='|';}
-  if(!mode)return c==27?0:(c==KEY_UP||c==KEY_DOWN?(int)c:character(c));
-  consumed[key/8]|=mask;
+  if(!s->mode)return c==27?0:(c==KEY_UP||c==KEY_DOWN?(int)c:character(c));
+  s->consumed[key/8]|=mask;
   if(was)return 0;
-  if(c==27){mode=first=0;return 0;}
-  if(mode==1) {
-    if(c==8){first=0;return 0;}
-    if(c<32||c>126){mode=first=0;return 0;}
-    if(!first){first=c;return 0;}
-    mode=0;
+  if(c==27){s->mode=s->first=0;return 0;}
+  if(s->mode==1) {
+    if(c==8){s->first=0;return 0;}
+    if(c<32||c>126){s->mode=s->first=0;return 0;}
+    if(!s->first){s->first=c;return 0;}
+    s->mode=0;
     for(unsigned i=0;i<sizeof(pairs)/sizeof(pairs[0]);i++)
-      if(pairs[i].first==first&&pairs[i].second==c)return character(pairs[i].value);
+      if(pairs[i].first==s->first&&pairs[i].second==c)return character(pairs[i].value);
     return 0;
   }
-  if(c==8){if(hex_overflow)hex_value=hex_digits=hex_overflow=0;else if(hex_digits){hex_digits--;hex_value>>=4;}return 0;}
+  if(c==8){if(s->hex_overflow)s->hex_value=s->hex_digits=s->hex_overflow=0;else if(s->hex_digits){s->hex_digits--;s->hex_value>>=4;}return 0;}
   if(c==13||c==' ') {
-    mode=0;return hex_digits&&!hex_overflow&&unicode_printable(hex_value)?character(hex_value):0;
+    s->mode=0;return s->hex_digits&&!s->hex_overflow&&unicode_printable(s->hex_value)?character(s->hex_value):0;
   }
   /* The entry chord may still be held: hexadecimal digits use unshifted keys. */
   unsigned digit=ext?c:keymap[scan];
   if(digit>='0'&&digit<='9')digit-='0';
   else if(digit>='a'&&digit<='f')digit=digit-'a'+10;
-  else {hex_overflow=1;return 0;}
-  if(hex_digits==6)hex_overflow=1;
-  else {hex_value=(hex_value<<4)|digit;hex_digits++;}
+  else {s->hex_overflow=1;return 0;}
+  if(s->hex_digits==6)s->hex_overflow=1;
+  else {s->hex_value=(s->hex_value<<4)|digit;s->hex_digits++;}
   return 0;
 }

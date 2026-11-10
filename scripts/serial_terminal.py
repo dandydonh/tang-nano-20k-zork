@@ -48,6 +48,8 @@ def connect(device, baud, console_in=0, console_out=1):
         attrs[2] |= termios.CLOCAL | termios.CREAD | termios.CS8
         attrs[4] = attrs[5] = getattr(termios, 'B' + str(baud))
         termios.tcsetattr(serial_fd, termios.TCSANOW, attrs)
+        print(f'Connected to {device} at {baud}. Waiting for board output.',
+              file=sys.stderr, flush=True)
         console_state = termios.tcgetattr(console_in)
         tty.setraw(console_in, termios.TCSANOW)
         command_pending = False

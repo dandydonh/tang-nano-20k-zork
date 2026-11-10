@@ -5,6 +5,13 @@ module soc_tb;
  wire tx,sck,mosi,cs,miso,trap,tw;wire [11:0] ta;wire [7:0] td;reg [7:0] tr;
  reg [7:0] text[0:4095];
  wire sdram_clk,sdram_cke,sdram_cs,sdram_ras,sdram_cas,sdram_we;
+ task send_ps2(input [7:0] c);
+   reg [10:0] frame;integer b;begin
+     frame={1'b1,~^c,c,1'b0};
+     for(b=0;b<11;b=b+1)begin kdata=frame[b];repeat(500)@(negedge clk);kclk=0;repeat(500)@(negedge clk);kclk=1;end
+     kdata=1;repeat(500)@(negedge clk);
+   end
+ endtask
 `ifdef ZORK_USB_HOST
  reg usb_cs=1,usb_sck=0,usb_mosi=0;
  wire usb_miso,usb_strobe;wire [7:0] usb_data;
@@ -16,6 +23,7 @@ module soc_tb;
  zork_soc dut(.clk(clk),.reset(reset),.uart_rx(rx),.uart_tx(tx),.ps2_clk(kclk),.ps2_data(kdata),
 `ifdef ZORK_USB_HOST
    .usb_key_data(usb_data),.usb_key_strobe(usb_strobe),
+   .input_mode_status(4'b0001),
 `endif
    .sd_miso(miso),.sd_clk(sck),.sd_mosi(mosi),.sd_cs(cs),.trap(trap),
    .text_addr(ta),.text_data(td),.text_write(tw),.text_read(tr),
@@ -132,11 +140,7 @@ module soc_tb;
  endtask
 `else
  task send_key(input [7:0] c);
-   reg [10:0] frame;integer b;begin
-     frame={1'b1,~^c,c,1'b0};
-     for(b=0;b<11;b=b+1)begin kdata=frame[b];repeat(500)@(negedge clk);kclk=0;repeat(500)@(negedge clk);kclk=1;end
-     kdata=1;repeat(500)@(negedge clk);
-   end
+   begin send_ps2(c);end
  endtask
 `endif
  integer edit_index;

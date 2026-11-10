@@ -4,7 +4,8 @@ project_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 gowin_home="${GOWIN_HOME:-/home/donh/IDE}"
 cd "$project_dir"
 # Isolate generated project/output so the normal zork.fs stays available.
-# Uses the checked-in CPU firmware image; does not program either chip.
+# Uses initialized CPU firmware; after firmware source changes, first run
+# scripts/build_firmware.sh. Does not program either chip.
 python3 - <<'PY'
 from pathlib import Path
 import hashlib
@@ -34,6 +35,8 @@ for item in files:
     item.set('path', str(stage / f'usb.{kind[5:]}') if kind in ('file.cst', 'file.sdc')
              else str(root / item.attrib['path']))
 ET.SubElement(files, 'File', path=str(root / 'src/companion_keyboard.v'),
+              type='file.verilog', enable='1')
+ET.SubElement(files, 'File', path=str(root / 'src/startup_mode.v'),
               type='file.verilog', enable='1')
 tree.write(stage / 'zork_usb.gprj', encoding='UTF-8', xml_declaration=True)
 inputs = [Path(item.attrib['path']) for item in files

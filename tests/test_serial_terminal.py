@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import termios
+import tempfile
 import time
 import unittest
 
@@ -57,7 +58,10 @@ class SerialTerminalTest(unittest.TestCase):
             if self.process.poll() is not None or time.monotonic() > deadline:
                 self.fail(receive(self.console_master, timeout=.1).decode(errors='replace'))
             time.sleep(.01)
-        self.assertIn(b'Ctrl+]', receive(self.console_master, timeout=.05))
+        startup = receive(self.console_master, timeout=.05)
+        self.assertIn(b'Ctrl+]', startup)
+        self.assertIn(b'Connected to ', startup)
+        self.assertLess(startup.index(b'Connecting to '), startup.index(b'Connected to '))
 
     def tearDown(self):
         if self.process.poll() is None:
@@ -155,6 +159,25 @@ class SerialTerminalTest(unittest.TestCase):
         self.assertEqual(self.process.wait(timeout=2), 1)
         self.assertIn(b'Serial connection failed', receive(self.console_master, timeout=.05))
         self.assert_restored()
+
+
+class SerialOpenFailureTest(unittest.TestCase):
+    def test_failed_open_never_reports_connected(self):
+        master, slave = os.openpty()
+        try:
+            with tempfile.TemporaryDirectory(prefix='zork-missing-port-') as directory:
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / 'scripts/serial_terminal.py'),
+                     str(Path(directory) / 'missing')],
+                    stdin=slave, stdout=slave, stderr=slave, timeout=2)
+                self.assertEqual(result.returncode, 1)
+                output = receive(master, timeout=.05)
+                self.assertIn(b'Connecting to ', output)
+                self.assertIn(b'Serial connection failed:', output)
+                self.assertNotIn(b'Connected to ', output)
+        finally:
+            os.close(master)
+            os.close(slave)
 
 
 if __name__ == '__main__':

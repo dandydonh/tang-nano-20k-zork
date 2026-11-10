@@ -18,6 +18,18 @@ module zork_top (
     output wire [10:0] O_sdram_addr,output wire [1:0] O_sdram_ba,
     output wire [3:0] O_sdram_dqm,inout wire [31:0] IO_sdram_dq
 );
+  wire system_reset;
+`ifdef ZORK_USB_HOST
+  wire companion_active,transport_reset,serial_enabled,serial_selected;
+  wire selection_done,mode_conflict,selection_led_n;
+  startup_mode mode_selector(.clk(clk_27mhz),.button(reset_button),
+    .companion_active(companion_active),.transport_reset(transport_reset),
+    .game_reset(system_reset),.serial_enabled(serial_enabled),
+    .serial_selected(serial_selected),.selection_done(selection_done),
+    .mode_conflict(mode_conflict),.selection_led_n(selection_led_n));
+`else
+  assign system_reset=reset_button;
+`endif
   wire serial_clk, pixel_clk, locked;
   // 27 / 4 * 55 = 371.25 MHz; DDR serialization = 742.5 Mb/s.
   rPLL #(.FCLKIN("27"), .IDIV_SEL(3), .FBDIV_SEL(54),
@@ -27,6 +39,8 @@ module zork_top (
     .FBDSEL(6'd0), .IDSEL(6'd0), .ODSEL(6'd0),
     .PSDA(4'd0), .DUTYDA(4'd0), .FDLY(4'd0)
   );
+  // Keep board-clock selection state out of the fast HDMI reset network.
+  // S1 may reset this PLL while the selector continues on clk_27mhz.
   wire clock_ready = locked && !reset_button;
   CLKDIV #(.DIV_MODE("5"), .GSREN("false")) pixel_divider (
     .HCLKIN(serial_clk), .CLKOUT(pixel_clk),
@@ -41,12 +55,16 @@ module zork_top (
   wire reset = reset_pipe[3];
   reg [15:0] power_reset=16'hffff;
   always @(posedge clk_27mhz)begin
-    if(reset_button)power_reset<=16'hffff;
+    if(system_reset)power_reset<=16'hffff;
     else power_reset<={power_reset[14:0],1'b0};
   end
   wire cpu_reset=power_reset[15];
   wire trap;
+`ifdef ZORK_USB_HOST
+  assign led_n = (!selection_done||mode_conflict)?selection_led_n:(!clock_ready||trap);
+`else
   assign led_n = !clock_ready || trap;
+`endif
   wire [23:0] rgb;
   wire de, hs, vs;
   wire [11:0] text_addr;wire [7:0] text_data,text_read;wire text_write;
@@ -54,20 +72,29 @@ module zork_top (
 `ifdef ZORK_USB_HOST
   wire [7:0] usb_key_data;
   wire usb_key_strobe;
-  companion_keyboard usb_keyboard(.clk(clk_27mhz),.reset(cpu_reset),
+  wire companion_reply;
+  companion_keyboard usb_keyboard(.clk(clk_27mhz),.reset(transport_reset),
     .spi_cs_n(companion_cs_n),.spi_sck(companion_sck),.spi_mosi(companion_mosi),
-    .spi_miso(companion_miso),.key_data(usb_key_data),.key_strobe(usb_key_strobe));
-  // BL616 debug text is not game input. Pin 69 becomes inactive-high IRQ,
-  // rather than serial output, while Companion is running.
-  assign game_uart_rx=1'b1;
-  assign uart_tx=1'b1;
+    .spi_miso(companion_reply),.host_active(companion_active),
+    .key_data(usb_key_data),.key_strobe(usb_key_strobe));
+  // Leave the BL616-facing reply pin passive until USB is selected. Serial
+  // mode must not advertise a Companion core or drive its SPI input. Continue
+  // observing keyboard payloads so conflicting input can block UART and
+  // blink the LED without suppressing HDMI. Game resets preserve transport.
+  assign companion_miso=(selection_done&&!serial_selected)?companion_reply:1'bz;
+  assign game_uart_rx=serial_enabled?uart_rx:1'b1;
+  // In PC mode CS can be idle-low/undefined: it is unrelated to UART. Only
+  // the selected mode and detected role guard may gate serial transmission.
+  assign uart_tx=serial_enabled?game_uart_tx:1'b1;
 `else
   assign game_uart_rx=uart_rx;
   assign uart_tx=game_uart_tx;
 `endif
   zork_soc soc(.clk(clk_27mhz),.reset(cpu_reset),.uart_rx(game_uart_rx),.uart_tx(game_uart_tx),
 `ifdef ZORK_USB_HOST
-    .usb_key_data(usb_key_data),.usb_key_strobe(usb_key_strobe),
+    .usb_key_data(usb_key_data),
+    .input_mode_status({mode_conflict,companion_active,serial_selected,1'b1}),
+    .usb_key_strobe(usb_key_strobe&&selection_done&&!serial_selected),
 `endif
     .ps2_clk(ps2_clk),.ps2_data(ps2_data),.sd_miso(sd_miso),.sd_clk(sd_clk),
     .sd_mosi(sd_mosi),.sd_cs(sd_cs),.trap(trap),.text_addr(text_addr),

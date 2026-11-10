@@ -24,9 +24,9 @@ module video_tb;
      for(y=0;y<750;y=y+1)for(x=0;x<1650;x=x+1)begin
        if(x<1280&&y<720)active=active+1;
        expected=24'h101810;
-       if(x>=160&&x<1120&&y>=40&&y<680)begin
-         cx=(x-160)/12;cy=(y-40)/20;ch=dut.text[cy*80+cx];g=dut.font[(ch&127)*32+(y-40)%20];
-         if(((g>>(11-(x-160)%12))&1) ^ (ch>>7))expected=24'hc8e8c8;
+       if(x<960&&y>=40&&y<680)begin
+         cx=x/12;cy=(y-40)/20;ch=dut.text[cy*80+cx];g=dut.font[(ch&127)*32+(y-40)%20];
+         if(((g>>(11-x%12))&1) ^ (ch>>7))expected=24'hc8e8c8;
        end
        @(negedge clk);
        if(de!==(x<1280&&y<720)||hs!==(x>=1390&&x<1430)||vs!==(y>=725&&y<730))$fatal(1,"video sync at %d,%d",x,y);

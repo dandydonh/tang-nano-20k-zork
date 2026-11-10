@@ -12,6 +12,7 @@ module companion_keyboard (
   input wire clk, reset,
   input wire spi_cs_n, spi_sck, spi_mosi,
   output wire spi_miso,
+  output wire host_active,
   output reg [7:0] key_data,
   output reg key_strobe
 );
@@ -40,6 +41,22 @@ module companion_keyboard (
 
   reg [7:0] held_data;
   reg byte_toggle;
+  reg host_seen;
+  // A discovery/config request does not establish USB keyboard activity:
+  // Companion sends status probes even when the FPGA never replies. Latch
+  // only after receiving a keyboard payload, beyond its four-byte header.
+  // CS boundaries and game resets preserve this configuration-time latch.
+  always @(negedge spi_sck or posedge reset) begin
+    if(reset)host_seen<=0;
+    else if(!spi_cs_n&&bit_count==7&&byte_count>=4&&
+      target==1&&command==1)host_seen<=1;
+  end
+  (* ASYNC_REG = "TRUE" *) reg [1:0] host_sync;
+  always @(posedge clk or posedge reset) begin
+    if(reset)host_sync<=0;
+    else host_sync<={host_sync[0],host_seen};
+  end
+  assign host_active=host_sync[1];
   // CS resets the parser, but MUST NOT reset the mailbox toggle or data:
   // the last byte can still be crossing to clk after CS has deasserted.
   always @(negedge spi_sck or posedge reset) begin
