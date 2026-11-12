@@ -13,6 +13,12 @@ module companion_keyboard (
   input wire spi_cs_n, spi_sck, spi_mosi,
   output wire spi_miso,
   output wire host_active,
+  // Passive status observations; these never select a mode or veto UART.
+  output reg discovery_seen,
+  output reg hid_registration_seen,
+  output reg announcement_seen,
+  output reg announcement_strobe,
+  output reg [223:0] announcement_frame,
   output reg [7:0] key_data,
   output reg key_strobe
 );
@@ -57,6 +63,111 @@ module companion_keyboard (
     else host_sync<={host_sync[0],host_seen};
   end
   assign host_active=host_sync[1];
+
+  // Private draft announcement: 7e 01 "ZKCP" 01 1c, then status fields
+  // and CRC-16/CCITT-FALSE (big-endian CRC, over the first 26 bytes).
+  // This is not an upstream allocation. Initial receiver accepts Companion
+  // reports only; Partner reporting requires an agreed ownership protocol.
+  function [15:0] status_crc_byte;
+    input [15:0] crc;
+    input [7:0] data;
+    reg [15:0] value;
+    integer bit_index;
+    begin
+      value=crc^{data,8'b0};
+      for(bit_index=0;bit_index<8;bit_index=bit_index+1)
+        value=value[15]?(value<<1)^16'h1021:value<<1;
+      status_crc_byte=value;
+    end
+  endfunction
+  function status_frame_valid;
+    input [223:0] frame;
+    input [15:0] crc;
+    reg [7:0] role,stage,flags;
+    reg keyboard_present;
+    begin
+      role=frame[151:144];stage=frame[143:136];flags=frame[135:128];
+      keyboard_present=frame[63:48]!=0;
+      status_frame_valid=
+        frame[223:208]==16'h7e01&&frame[207:176]==32'h5a4b4350&&
+        frame[175:160]==16'h011c&&frame[159:152]==1&&
+        role<=1&&stage<=3&&flags[7:4]==0&&
+        flags[0]==(role==1)&&(!flags[1]||role==1)&&
+        flags[3]==keyboard_present&&(!keyboard_present||flags[1])&&
+        (stage!=1||(role==1&&flags[2:0]==3'b111))&&
+        frame[31:16]==0&&frame[15:0]==crc;
+    end
+  endfunction
+
+  reg [223:0] status_shift;
+  reg [15:0] status_crc;
+  reg discovery_complete,hid_complete,announcement_complete;
+  reg transaction_toggle;
+  // Do not clear the bundled status at CS deassertion: the board-clock
+  // receiver must still be able to sample the finished transaction when
+  // SCK stops. Clear completion on EVERY further bit, so a trailing partial
+  // byte or extra byte invalidates the candidate before CS ends the frame.
+  always @(negedge spi_sck or posedge reset) begin
+    if(reset)begin
+      status_shift<=0;status_crc<=16'hffff;
+      discovery_complete<=0;hid_complete<=0;announcement_complete<=0;
+      transaction_toggle<=0;
+    end else if(!spi_cs_n)begin
+      discovery_complete<=0;hid_complete<=0;announcement_complete<=0;
+      if(byte_count==0&&bit_count==0)transaction_toggle<=!transaction_toggle;
+      if(bit_count==7)begin
+        if(byte_count==0)begin
+          status_shift<={216'b0,received};
+          status_crc<=status_crc_byte(16'hffff,received);
+        end else begin
+          if(byte_count<28)status_shift<={status_shift[215:0],received};
+          if(byte_count<26)status_crc<=status_crc_byte(status_crc,received);
+        end
+        if(byte_count==6&&status_shift[47:0]==0&&received==0)
+          discovery_complete<=1;
+        if(byte_count==4&&status_shift[31:0]==32'h01000000&&received==0)
+          hid_complete<=1;
+        if(byte_count==27)
+          announcement_complete<=status_frame_valid({status_shift[215:0],received},status_crc);
+      end
+    end
+  end
+
+  (* ASYNC_REG = "TRUE" *) reg [1:0] status_cs_sync,status_transaction_sync;
+  reg status_cs_previous,status_transaction_seen;
+  // Bundled-data CDC contract: after any transaction whose observations
+  // must be delivered, CS stays high with no SCK for >=8 board clocks.
+  // Custom status sender holds the SPI mutex through >=1 us idle before AND
+  // after an announcement (27 MHz board clock). This leaves data/completion stable
+  // until the synchronized CS rising event is consumed. No CS-derived clock
+  // or oversampling of SPI data is used. Legacy probe observations are only
+  // guaranteed with the same gap; keyboard delivery uses its existing CDC.
+  always @(posedge clk or posedge reset)begin
+    if(reset)begin
+      status_cs_sync<=2'b11;status_cs_previous<=1;
+      status_transaction_sync<=0;status_transaction_seen<=0;
+      discovery_seen<=0;hid_registration_seen<=0;announcement_seen<=0;
+      announcement_strobe<=0;announcement_frame<=0;
+    end else begin
+      status_cs_sync<={status_cs_sync[0],spi_cs_n};
+      status_transaction_sync<={status_transaction_sync[0],transaction_toggle};
+      status_cs_previous<=status_cs_sync[1];
+      announcement_strobe<=0;
+      // Settle the token during the pre-frame idle as well: a previously
+      // unobserved runt CS pulse must not alias the next real transaction.
+      if(status_cs_sync[1])status_transaction_seen<=status_transaction_sync[1];
+      if(status_cs_sync[1]&&!status_cs_previous&&
+         status_transaction_sync[1]!=status_transaction_seen)begin
+        if(discovery_complete)discovery_seen<=1;
+        if(hid_complete)hid_registration_seen<=1;
+        if(announcement_complete)begin
+          announcement_frame<=status_shift;
+          announcement_seen<=1;
+          announcement_strobe<=1;
+        end
+      end
+    end
+  end
   // CS resets the parser, but MUST NOT reset the mailbox toggle or data:
   // the last byte can still be crossing to clk after CS has deasserted.
   always @(negedge spi_sck or posedge reset) begin

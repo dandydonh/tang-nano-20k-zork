@@ -22,8 +22,14 @@ module zork_top (
 `ifdef ZORK_USB_HOST
   wire companion_active,transport_reset,serial_enabled,serial_selected;
   wire selection_done,mode_conflict,selection_led_n;
-  startup_mode mode_selector(.clk(clk_27mhz),.button(reset_button),
+  wire discovery_seen,hid_registration_seen,announcement_seen,announcement_strobe;
+  wire [223:0] announcement_frame;
+  wire [31:0] input_status;
+  startup_mode #(.AUTO_DETECT(1)) mode_selector(.clk(clk_27mhz),.button(reset_button),
     .companion_active(companion_active),.transport_reset(transport_reset),
+    .announcement_strobe(announcement_strobe),.announcement_frame(announcement_frame),
+    .spi_cs_n(companion_cs_n),.discovery_seen(discovery_seen),
+    .hid_registration_seen(hid_registration_seen),.input_status(input_status),
     .game_reset(system_reset),.serial_enabled(serial_enabled),
     .serial_selected(serial_selected),.selection_done(selection_done),
     .mode_conflict(mode_conflict),.selection_led_n(selection_led_n));
@@ -76,6 +82,9 @@ module zork_top (
   companion_keyboard usb_keyboard(.clk(clk_27mhz),.reset(transport_reset),
     .spi_cs_n(companion_cs_n),.spi_sck(companion_sck),.spi_mosi(companion_mosi),
     .spi_miso(companion_reply),.host_active(companion_active),
+    .discovery_seen(discovery_seen),.hid_registration_seen(hid_registration_seen),
+    .announcement_seen(announcement_seen),.announcement_strobe(announcement_strobe),
+    .announcement_frame(announcement_frame),
     .key_data(usb_key_data),.key_strobe(usb_key_strobe));
   // Leave the BL616-facing reply pin passive until USB is selected. Serial
   // mode must not advertise a Companion core or drive its SPI input. Continue
@@ -93,7 +102,7 @@ module zork_top (
   zork_soc soc(.clk(clk_27mhz),.reset(cpu_reset),.uart_rx(game_uart_rx),.uart_tx(game_uart_tx),
 `ifdef ZORK_USB_HOST
     .usb_key_data(usb_key_data),
-    .input_mode_status({mode_conflict,companion_active,serial_selected,1'b1}),
+    .input_mode_status(input_status),
     .usb_key_strobe(usb_key_strobe&&selection_done&&!serial_selected),
 `endif
     .ps2_clk(ps2_clk),.ps2_data(ps2_data),.sd_miso(sd_miso),.sd_clk(sd_clk),

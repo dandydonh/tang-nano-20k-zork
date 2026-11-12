@@ -36,8 +36,14 @@ bench = bench.replace('module soc_tb;', 'module input_modes_soc_tb;')
 bench = bench.replace(' wire tx,sck,mosi,cs,miso,trap,tw;', '''
  reg mode_button=0;
  wire transport_reset,startup_reset,serial_enabled,serial_selected,selection_done,host_active;
- startup_mode #(.WINDOW_CYCLES(2000),.DEBOUNCE_CYCLES(4),.BLINK_CYCLES(100)) selector(
+ wire [31:0] input_status;
+ reg status_update=0;
+ reg [223:0] status_frame=224'h7e015a4b4350011c0101010701000000000000000000000000003a6d;
+ startup_mode #(.AUTO_DETECT(1),.DETECT_CYCLES(4000),.STALE_CYCLES(3000),.WINDOW_CYCLES(2000),.DEBOUNCE_CYCLES(4),.BLINK_CYCLES(100)) selector(
    .clk(clk),.button(mode_button),.companion_active(host_active),
+   .announcement_strobe(status_update),.announcement_frame(status_frame),
+   .spi_cs_n(1'b1),.discovery_seen(1'b0),.hid_registration_seen(1'b0),
+   .input_status(input_status),
    .transport_reset(transport_reset),.game_reset(startup_reset),
    .serial_enabled(serial_enabled),.serial_selected(serial_selected),.selection_done(selection_done));
  wire soc_reset=reset||startup_reset;
@@ -51,7 +57,7 @@ bench = bench.replace('zork_soc dut(.clk(clk),.reset(reset),.uart_rx(rx)',
 bench = bench.replace('.usb_key_data(usb_data),.usb_key_strobe(usb_strobe)',
                       '.usb_key_data(usb_data),.usb_key_strobe(usb_strobe&&selection_done&&!serial_selected)')
 bench = bench.replace(".input_mode_status(4'b0001)",
-                      ".input_mode_status({1'b0,host_active,serial_selected,1'b1})")
+                      ".input_mode_status(input_status)")
 bench = bench.replace('.clk(sdram_clk),.reset(reset)', '.clk(sdram_clk),.reset(soc_reset)')
 bench += '''
  integer handled_menus=0;
@@ -71,8 +77,13 @@ bench += '''
    repeat(30)@(negedge clk);
    if($test$plusargs("serial_mode"))begin
      mode_button=1;repeat(50)@(negedge clk);mode_button=0;
+   end else if(!$test$plusargs("silent_mode"))begin
+     status_update=1;@(negedge clk);status_update=0;
    end
-   wait(selection_done);repeat(20)@(negedge clk);reset=0;
+   wait(selection_done);repeat(20)@(negedge clk);
+   if(input_status[15:12]!=($test$plusargs("serial_mode")?1:($test$plusargs("silent_mode")?4:3)))
+     $fatal(1,"automatic/manual CPU boot reason");
+   reset=0;
    for(round=0;round<2;round=round+1)begin
      base=round*5;
      wait(prompts==base+1);repeat(2000)@(negedge clk);
@@ -99,7 +110,7 @@ bench += '''
      if(round==0)begin
        mode_button=1;repeat(20)@(negedge clk);mode_button=0;
        wait(!soc_reset);repeat(20)@(negedge clk);
-       if(serial_selected!=$test$plusargs("serial_mode"))$fatal(1,"mode lost across S1 reset");
+       if(serial_selected!=($test$plusargs("serial_mode")||$test$plusargs("silent_mode")))$fatal(1,"mode lost across S1 reset");
      end
    end
    $display("\\nPASS S1 input-mode actual CPU: two boots, retained selection, isolated inputs, physical PS2 and no card writes; %0d cycles",cycles);
@@ -120,7 +131,8 @@ with (work / 'build.log').open('w') as log:
                     *[str(ROOT / s) for s in sources]], stdout=log, stderr=subprocess.STDOUT,
                    check=True, timeout=300)
 for name, args, expected in [('usb', [], [97, 129, 98, 67]),
-                              ('serial', ['+serial_mode'], [170, 97, 98, 67])]:
+                              ('serial', ['+serial_mode'], [170, 97, 98, 67]),
+                              ('silent', ['+silent_mode'], [170, 97, 98, 67])]:
     log_path = work / f'{name}.log'
     with log_path.open('w') as log:
         subprocess.run([work / 'obj/Vinput_modes_soc_tb', '+wrap', *args], cwd=work,
@@ -129,7 +141,7 @@ for name, args, expected in [('usb', [], [97, 129, 98, 67]),
     actual = list(map(int, re.findall(r' key (\d+)', output)))
     assert actual == expected * 2, (name, actual, output)
     assert 'PASS S1 input-mode actual CPU:' in output and 'CORE ERROR' not in output
-    label = 'serial terminal' if name == 'serial' else 'USB keyboard'
+    label = 'USB keyboard' if name == 'usb' else 'serial terminal'
     assert output.count(f'Input: {label} + PS/2') == 2, output
     print(name + ': ' + next(line for line in output.splitlines() if line.startswith('PASS S1')))
 (work / 'SOURCE_SHA256SUMS').write_text(''.join(

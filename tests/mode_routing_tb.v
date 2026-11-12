@@ -23,7 +23,10 @@ module mode_routing_tb;
    .companion_miso(miso),.uart_tx(tx),.led_n(led));
  defparam dut.mode_selector.WINDOW_CYCLES=400;
  defparam dut.mode_selector.DEBOUNCE_CYCLES=4;
+ defparam dut.mode_selector.DETECT_CYCLES=4000;
+ defparam dut.mode_selector.STALE_CYCLES=4000;
  defparam dut.mode_selector.BLINK_CYCLES=8;
+ reg [223:0] vectors[0:17];
  reg mock_tx=0;
  initial force dut.game_uart_tx=mock_tx;
  task cycles(input integer n);begin repeat(n)@(negedge clk);end endtask
@@ -41,6 +44,7 @@ module mode_routing_tb;
      spi_byte(0);spi_byte(4);spi_byte(8'h1c);cs=1;cycles(10);end
  endtask
  initial begin
+   $readmemh("tests/fixtures/companion_status_v1.hex",vectors);
    cycles(20);rx=0;
    if(tx!==1||dut.game_uart_rx!==1)$fatal(1,"UART exposed during selection");
    cs=0;cycles(2);
@@ -53,7 +57,7 @@ module mode_routing_tb;
      wait(dut.selection_done);cycles(20);
      if(!dut.serial_enabled||tx!==0||dut.game_uart_rx!==0)
        $fatal(1,"serial routing missing enabled=%b selected=%b active=%b tx=%b internal=%b rx=%b",dut.serial_enabled,dut.serial_selected,dut.companion_active,tx,dut.game_uart_tx,dut.game_uart_rx);
-     if(dut.soc.input_mode_status!==4'b0011)$fatal(1,"serial mode status wiring");
+     if(dut.soc.input_mode_status!==32'h1003)$fatal(1,"serial mode status wiring");
      mock_tx=1;cycles(2);if(tx!==1)$fatal(1,"serial high");
      button=1;cycles(10);button=0;cycles(30);
      if(!dut.serial_enabled||dut.cpu_reset)$fatal(1,"serial mode reset retention");
@@ -73,14 +77,17 @@ module mode_routing_tb;
      cs=1;cycles(5);keyboard_payload;
      if(!dut.companion_active||dut.serial_enabled||tx!==1||dut.cpu_reset)
        $fatal(1,"keyboard conflict UART isolation/visible diagnostics");
-     if(dut.soc.input_mode_status!==4'b1111)$fatal(1,"conflict status unavailable");
+     if(dut.soc.input_mode_status[3:0]!==4'b1111)$fatal(1,"conflict status unavailable");
      button=1;cycles(10);button=0;cycles(30);
      if(!dut.mode_conflict||dut.cpu_reset||tx!==1)
        $fatal(1,"conflict reset retention/diagnostics");
    end else begin
+     cs=0;cycles(5);
+     for(integer k=0;k<28;k=k+1)spi_byte(vectors[0][223-k*8 -: 8]);
+     cs=1;cycles(20);
      wait(dut.selection_done);cycles(20);
      if(dut.serial_enabled||tx!==1||dut.game_uart_rx!==1)$fatal(1,"USB debug UART leaked");
-     if(dut.soc.input_mode_status!==4'b0001)$fatal(1,"USB mode status wiring");
+     if(dut.soc.input_mode_status!==32'h3031)$fatal(1,"USB mode status wiring");
      packet(0,8);
      if(dut.companion_active)$fatal(1,"config request falsely recognized as keyboard");
      cs=0;cycles(5);spi_byte(0);spi_byte(0);spi_byte(0);spi_byte(0);

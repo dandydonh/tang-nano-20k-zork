@@ -248,6 +248,14 @@ void platform_init(void){
   // Legacy profiles return zero for this otherwise unused register.
   unsigned input_mode=REG(32);
   input_mode_label=(input_mode&1)?((input_mode&2)?"Input: serial terminal + PS/2":"Input: USB keyboard + PS/2"):0;
+  if(input_mode&1)switch((input_mode>>12)&15) {
+    case 2:input_mode_label="Input: USB keyboard + PS/2 (manual)";break;
+    case 4:input_mode_label="Input: serial terminal + PS/2 (Companion not detected)";break;
+    case 5:input_mode_label="Input: serial terminal + PS/2 (Companion not ready; UART blocked)";break;
+    case 6:input_mode_label="Input: serial terminal + PS/2 (legacy activity; UART blocked)";break;
+  }
+  if((input_mode&11)==11)
+    input_mode_label="Input: serial terminal + PS/2 (Companion conflict; UART blocked)";
   if(input_mode_label) {
     input_mode_header();
     const char *label=input_mode_label;

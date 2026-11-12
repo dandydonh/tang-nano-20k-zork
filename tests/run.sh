@@ -15,6 +15,12 @@ fi
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s companion_keyboard_tb -o impl/tests/companion_keyboard \
   tests/companion_keyboard_tb.v src/companion_keyboard.v
 "$vvp_bin" impl/tests/companion_keyboard
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -s companion_status_tb -o impl/tests/companion_status \
+  tests/companion_status_tb.v src/companion_keyboard.v
+"$vvp_bin" impl/tests/companion_status
+"$iverilog_bin" "${ivl_args[@]}" -g2012 -s startup_auto_tb -o impl/tests/startup_auto \
+  tests/startup_auto_tb.v src/startup_mode.v
+"$vvp_bin" impl/tests/startup_auto
 "$iverilog_bin" "${ivl_args[@]}" -g2012 -s startup_mode_tb \
   -o impl/tests/startup_mode tests/startup_mode_tb.v src/startup_mode.v
 "$vvp_bin" impl/tests/startup_mode

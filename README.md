@@ -1,7 +1,7 @@
 # Zork and V3/V5 stories on Tang Nano 20K
 
 [Project website](https://dandydonh.github.io/tang-nano-20k-zork/) ·
-[v0.7.0 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
+[v0.8.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0)
 
 A standalone Z-machine V3/V5 story player for the Sipeed Tang Nano 20K
 (GW2AR-18C, GW2AR-LV18QN88C8/I7). A PicoRV32 processor runs the bare-metal
@@ -16,10 +16,16 @@ Current source supports up to **1,000 stories** with a paged menu and automatic
 per-story `.sav` creation on the first confirmed SAVE, with **five positions**
 per story. Copy compatible story files to `/ZORK`; no separate save-file setup is needed.
 
-The v0.7.0 preview adds Unicode filenames, UTF-8 game text/input and PS/2
-Compose/hex entry. It supports V3 and V5 stories. Tested V5 editions include
-Hitchhiker's Guide (release 31) and Beyond Zork (release 57); supply your own
-story files. It also includes MORE paging and terminal-aware V3 serial output.
+The v0.8.0 prerelease adds automatic USB/serial input selection and a matching
+custom BL616 FPGA-Companion binary for Tang Nano 20K **revision 3923**. The two
+chips are updated separately. Read [why Companion must also be updated](#why-v080-includes-custom-fpga-companion)
+before installing only the bitstream. This experimental image retains the
+two-second flashing-LED window for manual overrides.
+
+It retains Unicode filenames, UTF-8 game text/input, PS/2 Compose/hex entry,
+MORE paging and terminal-aware V3 serial output from v0.7.0. Tested V5 editions
+include Hitchhiker's Guide (release 31) and Beyond Zork (release 57); supply your
+own story files.
 V5 games draw their own status, menus and split windows across a fixed
 79-column by 32-row screen. Use a serial terminal with at least 80 columns and
 32 usable game rows. With Minicom's status bar enabled, allow at least **33
@@ -37,28 +43,34 @@ cd tang-nano-20k-zork
 See the build instructions below for required tools,
 FPGA programming, and copying stories to the card.
 
-## v0.7.0 preview downloads
+## v0.8.0 prerelease downloads
 
-The [v0.7.0 preview](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
-includes Unicode filename and game-text support, PS/2 composition, automatic
-per-story saves, and both bundled stories:
+The [v0.8.0 prerelease](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0)
+contains the selectable-input FPGA image, its matching experimental Companion,
+and the unchanged example stories:
 
-- [zork.fs](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/zork.fs): Tang Nano 20K bitstream, GW2AR-18C.
-- [madman.z3](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/madman.z3): Madman, V3.
-- [mars2049ad.z5](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/mars2049ad.z5): Mars, 2049 AD, V5.
-- [STORY_NOTICES.md](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/STORY_NOTICES.md): story credits and distribution terms.
-- [SHA256SUMS](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.7.0/SHA256SUMS): checksums for the four files above.
+- [zork.fs](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/zork.fs): FPGA bitstream for Tang Nano 20K revision 3923, GW2AR-18C.
+- [fpga_companion_nano20k_v3923_zork_status_v1_exp1.bin](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/fpga_companion_nano20k_v3923_zork_status_v1_exp1.bin): matching BL616 Companion binary; install at `0x40000` using the guide below.
+- [zork-companion-v0.8.0.zip](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/zork-companion-v0.8.0.zip): the same Companion binary, installation/recovery guide, Companion-only INI, source patch, dependency provenance and licenses.
+- [BL616_CUSTOM_COMPANION_INSTALL.md](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/BL616_CUSTOM_COMPANION_INSTALL.md): separate BL616 installation instructions; preserve the existing compatible Partner firmware.
+- [madman.z3](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/madman.z3): Madman, V3.
+- [mars2049ad.z5](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/mars2049ad.z5): Mars, 2049 AD, V5.
+- [STORY_NOTICES.md](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/STORY_NOTICES.md): story credits and distribution terms.
+- [SHA256SUMS](https://github.com/dandydonh/tang-nano-20k-zork/releases/download/v0.8.0/SHA256SUMS): checksums for the seven files above.
 
-Download all five files into one directory and verify them:
+Download the assets into one directory and verify them:
 
 ```bash
 sha256sum -c SHA256SUMS
 ```
 
-Place `zork.fs` at `impl/pnr/zork.fs` for `./program_flash.sh`. With the board
-powered off, copy the two stories into the card's `/ZORK` folder. Save files
-are created automatically when you first confirm SAVE. Keep the story notices
-with downloaded or redistributed copies.
+Place `zork.fs` at `impl/pnr/zork.fs` for `./program_flash.sh`. That operation
+updates **only the FPGA**, not the BL616. Follow the
+[custom Companion installation guide](docs/BL616_CUSTOM_COMPANION_INSTALL.md)
+for the separate microcontroller update; do not pass its `.bin` to the FPGA programmer.
+With the board powered off, copy the stories into the card's `/ZORK` folder.
+Save files are created automatically on the first confirmed SAVE. Keep the
+story notices with downloaded or redistributed copies.
 
 ## Firmware and programming
 
@@ -159,38 +171,125 @@ Backspace edits pending input. The story must support the character in its
 ZSCII table. Serial input accepts UTF-8. Game text supports BMP characters;
 HDMI uses fallback glyphs for non-ASCII, and complex shaping is unsupported.
 
-### Experimental onboard USB keyboard (3923)
+### Automatic USB keyboard / onboard serial (3923, experimental)
 
-An optional FPGA-Companion interface supports the onboard BL616.
-The BL616 hosts the USB hub and keyboard; the FPGA
-receives scan codes over the existing board SPI connections. USB keyboard input
-has been tested with two keyboards on a Tang Nano 20K 3923 with a powered hub.
-Keyboard reconnect and cold/warm boot have also been verified on this setup;
-broader keyboard and hub compatibility remains unverified.
+The onboard BL616 hosts the USB hub and keyboard; the FPGA receives scan codes
+over the board's SPI connections. The v0.8.0 download uses this selectable-input
+profile. Physical PS/2 is available in either mode.
 
-Run `bash scripts/build_usb_host.sh` to build the separate experimental image:
-`impl/usb-host/impl/pnr/zork_usb.fs`. The script uses the existing initialized
-CPU firmware and keeps normal build output under `impl/pnr/` intact. It does
-not program hardware. Normal `./build.sh` continues to build PS/2/UART support.
+To build this profile from source, run `bash scripts/build_firmware.sh` first
+(set `RISCV_PREFIX` for your toolchain), then `bash scripts/build_usb_host.sh`.
+The output is `impl/usb-host/impl/pnr/zork_usb.fs`; the script leaves
+`impl/pnr/` intact and does not program hardware. Normal `./build.sh` builds the
+legacy PS/2/UART profile, without Companion automatic selection.
 
-The USB profile requires compatible Partner firmware and FPGA-Companion's
-**nano20k_v3923** BL616 build; ordinary factory programmer firmware does not
-host a keyboard. Installation and recovery procedures must be reviewed before
-flashing the BL616. Protocol reference source commit:
-`000fd039d793151822f08f1974df589fcba26d0b` in
-[FPGA-Companion](https://github.com/MiSTle-Dev/FPGA-Companion).
+#### Why v0.8.0 includes custom FPGA-Companion
 
-This profile uses HDMI output and USB keyboard input. It disables physical
-PS/2 input and onboard UART game I/O: pin 69 is held high as Companion's
-inactive interrupt, and BL616 debug serial is ignored. Zork retains sole access
-to the physical SD card; Companion receives "no card" status and no menu
-configuration. A short `<config/>` response selects Companion v1.4.33's legacy
-fallback, which releases its SPI lock; returning zero instead leaves that lock
-held and blocks keyboard transfers. Companion's SD probe can add about two
-seconds to its startup.
-Keyboard repeat, bursts and broader hub compatibility remain to be validated.
-F12 is reserved by Companion. The existing Compose/hex
-decoder handles delivered scan codes.
+Stock FPGA-Companion v1.4.33 sends discovery and keyboard traffic but does not
+provide the readiness announcements used by this bitstream. Discovery probes
+alone cannot show that the USB host controller is ready, and silence cannot
+prove that the BL616 is in PC serial mode. The supplied custom Companion adds
+periodic status reports, including the actual host-controller initialization
+result and keyboard presence. The FPGA uses a fresh host-ready report to select
+USB input without a button press, even when no keyboard is attached yet.
+
+This is an experimental derivative of v1.4.33, **not an upstream release**.
+Source and build instructions are in the
+[Zork Companion fork](https://github.com/dandydonh/FPGA-Companion/tree/feature/companion-status-announcements)
+(source commit `cffe5124f64afa4541acc70d302d5838bfc520cc`). The protocol is
+provisional. Install the matching release pair for automatic USB selection.
+The Companion binary is for **nano20k_v3923 only** and requires a compatible
+Partner; the tested installation preserved Partner2025030317. Factory
+programmer firmware alone does not host a USB keyboard.
+
+Updating the FPGA does not update Companion. Follow the
+[custom Companion installation and recovery guide](docs/BL616_CUSTOM_COMPANION_INSTALL.md)
+for the separate BL616 operation. The older
+[stock USB keyboard upgrade guide](docs/BL616_USB_KEYBOARD_UPGRADE.md) explains
+Partner prerequisites; its stock Companion binary does not enable this new
+automatic selection.
+
+#### Startup with the matching Companion
+
+Power off before changing the USB connection. Leave both S1 and S2 released
+when applying power. The first **two seconds after FPGA configuration** retain
+a flashing-LED manual-override window:
+
+| Action during the window | Selection |
+| --- | --- |
+| Leave S1 released | Automatic: fresh host-ready report selects USB at an idle SPI boundary; silence falls back to serial after about 10 seconds from startup. |
+| Press and release S1 once (at least 10 ms) | Manual serial, unless a valid Companion report or real keyboard payload blocks UART to prevent a pin conflict. |
+| Press and release S1 twice (two separate presses) | Manual USB, including support for a legacy Companion without readiness reports. |
+
+The game waits for selection and button release. A not-ready/stale Companion
+report, observed legacy activity without a report, or a stuck-low SPI chip
+select can produce a bounded diagnostic startup with UART blocked. These
+10-second detection and one-second report-age settings are experimental.
+The two-second window is still present in this release.
+
+Later S1 presses reset the game and retain the selected mode; power-cycle to
+select again. Do not hold either button before power-on. The permanently
+visible HDMI input label reports the latched FPGA selection and startup
+diagnostic. It does not prove the USB connection or keyboard is working, and
+it is not refreshed for later status changes.
+
+#### If only the bitstream is updated
+
+An older Companion is not automatically upgraded or positively identified:
+
+| What the FPGA observes without a manual override | Result |
+| --- | --- |
+| No announcements or recognized legacy probes | After about 10 seconds, selects serial + PS/2 with “Companion not detected.” Serial still requires a functioning Partner/PC connection; silence can also mean stalled firmware. |
+| Recognized legacy discovery or HID-registration traffic, without readiness reports | After about 10 seconds, starts with a legacy-activity diagnostic and **UART blocked**. Automatic USB selection does not occur. |
+| A valid announcement that never becomes fresh and host-ready | Starts with a not-ready diagnostic and **UART blocked**. |
+
+To use USB with stock Companion, power-cycle with the powered keyboard hub
+connected and **press/release S1 twice during the two-second window**. Manual
+USB bypasses readiness detection; it does not upgrade or repair Companion.
+A stuck-low chip select can still cause a blocked diagnostic instead of USB.
+For direct-PC serial, one S1 press/release selects serial and ignores generic
+probes. Real keyboard payloads or valid custom announcements still block UART.
+Physical PS/2 remains routed in all selected modes.
+
+A late readiness report never switches an already running game to USB. In a
+serial selection it blocks conflicting UART traffic; power-cycle to select
+again. The FPGA cannot infer the BL616 PC role from absent keyboard traffic.
+
+#### Validation and remaining issues
+
+The packaged FPGA image passed synthesis/place/route with zero setup/hold
+violations and flash program/verify on 2026-11-12. Receiver/startup/routing tests
+and actual-CPU automatic USB, manual serial and silent serial fallback tests
+passed, including game-reset retention and input isolation. Companion compiled
+and its final ELF was checked for the real host-controller readiness hooks; its
+flash payload and preservation of Partner were independently read back after
+installation on 2026-11-11. Normal USB debugger enumeration returned after power
+cycling. **Physical startup, keyboard/serial operation, HDMI alignment and
+power-cycle persistence of the matching v0.8.0 pair remain unconfirmed.**
+
+Earlier images worked with two USB keyboards and with serial commands on
+successful boots, but both USB and serial sometimes required extra full board
+power cycles. Waiting 15 seconds or reconnecting only the keyboard did not fix
+an observed USB failure. The cause remains unresolved; this release does not
+claim to fix it. Broader hub compatibility, keyboard repeat and bursts remain
+unverified.
+
+SPI replies stay tri-stated while selecting and in serial mode. USB mode holds
+pin69 high as the BL616's inactive interrupt and ignores its debug serial.
+Serial uses pins70/69 at 115200 baud, 8N1, no flow control, independently of SPI
+chip select. Physical PS/2 uses pins25/26 with separate FIFO/modifier/Compose
+state. Status reports and payload conflict protection never reset the game.
+
+Zork alone accesses the physical SD card; Companion receives “no card” and a
+short `<config/>` response to allow its v1.4.33 legacy fallback to release the
+SPI lock. Its SD probe can add about two seconds to Companion startup. F12 is
+reserved by Companion.
+
+Focused RTL checks are `companion_status_tb`, `startup_auto_tb`,
+`startup_mode_tb` and `mode_routing_tb`. `python3 tests/test_input_modes_cpu.py`
+checks automatic USB, manual serial and silent serial fallback with the actual
+CPU and simulated PS/2/SPI input, plus game resets. These tests use disposable
+SD fixtures and do not simulate USB enumeration or physical HDMI.
 
 Focused CPU validation can be run with
 `ZORK_TEST_USB_KEYBOARD=1 python3 tests/test_unicode_text_cpu.py` after building
@@ -217,6 +316,11 @@ Python launcher from the project directory:
 ```sh
 python3 scripts/serial_terminal.py /dev/ttyUSB1
 ```
+
+The launcher prints `Connected` after Linux opens and configures the port.
+That confirms the host-side port setup, not a response from Zork. If it opens
+after the startup menu was sent, press S1 once to reset Zork with the terminal
+already listening; the selected input mode is retained.
 
 It uses Python's standard library and sets 115200 baud, 8N1, with no flow
 control or local echo. Press **Ctrl+]** or **Ctrl+A, then X** to disconnect.
@@ -397,11 +501,11 @@ Creation is not guaranteed atomic under power loss. Once created, alternating
 snapshot banks retain their existing checksum/fallback behavior. Keep the card
 inserted during play, and power off before removing it or managing files.
 
-The v0.7.0 Unicode/PS2 image passed persistent flash programming/readback
-on 2026-11-07 using GW2AR-18C, cable 4/channel 0 and operation 9. Physical
-startup timing, keyboard, save/restore, HDMI and power-cycle behavior for this
-exact image remain unobserved. See the [v0.7.0 release notes](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0)
-for its hash and validation summary.
+The v0.8.0 selectable-input image passed flash programming and the programmer's
+verification on 2026-11-12. Physical save/restore across full power-off remains
+unobserved for this exact image. See the
+[v0.8.0 release notes](https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0)
+for hashes and validation limits.
 
 ### Saves and filesystem limits
 
@@ -533,7 +637,8 @@ and expansion; the supplied private V5 stories are not redistributed.
 - HDMI carries DVI-compatible video, no audio. 80 columns by 32 rows, including
   a fixed inverse status row for V3; V5 controls its own status/windows. DejaVu
   Sans Mono glyphs use native 12x20 pixel cells without stretching; the console
-  occupies 960x640 centered in 720p (160-pixel side and 40-pixel top/bottom margins).
+  occupies 960x640 at the left edge of 720p, with 40-pixel top/bottom margins
+  and the unused 320 pixels to the right.
 - Independent serial/79-column HDMI word wrapping, scrolling, `[MORE]` paging and basic line
   editing. No HDMI scrollback. One column remains free on an 80-column display.
 - V3/V5 implementation with bounded memory, not a general Z-machine

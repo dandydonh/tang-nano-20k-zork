@@ -1,7 +1,7 @@
 module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
 `ifdef ZORK_USB_HOST
  input wire [7:0] usb_key_data, input wire usb_key_strobe,
- input wire [3:0] input_mode_status,
+ input wire [31:0] input_mode_status,
 `endif
  output wire uart_tx,sd_clk,sd_mosi,output reg sd_cs,
  output wire trap,
@@ -89,7 +89,7 @@ module zork_soc(input wire clk,reset,uart_rx,ps2_clk,ps2_data,sd_miso,
           28:begin ready<=1;io_data<={22'b0,usb_over,usb_valid,usb_front};end
           // bit0: selectable profile, bit1: serial chosen, bit2: host seen,
           // bit3: role conflict. Used to identify actual mode on HDMI.
-          32:begin ready<=1;io_data<={28'b0,input_mode_status};end
+          32:begin ready<=1;io_data<=input_mode_status;end
 `endif
           default:ready<=1;
         endcase
