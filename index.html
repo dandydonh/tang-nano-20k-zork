@@ -34,10 +34,10 @@
       <h1>A tiny FPGA.<br>A world of <em>adventure.</em></h1>
       <p class="intro">Zork and compatible Z-machine V3/V5 stories, running on the Sipeed Tang Nano 20K. A RISC-V processor inside the FPGA runs the game, with no operating system.</p>
       <div class="actions">
-        <a class="button primary" href="https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0">Get the v0.7.0 preview <span aria-hidden="true">↗</span></a>
+        <a class="button primary" href="https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0">Get the v0.8.0 prerelease <span aria-hidden="true">↗</span></a>
         <a class="button" href="https://github.com/dandydonh/tang-nano-20k-zork">Explore the source <span aria-hidden="true">↗</span></a>
       </div>
-      <p class="small">Madman and Mars, 2049 AD are included with the preview. Supply your own Zork story files.</p>
+      <p class="small">Includes the FPGA bitstream, matching BL616 Companion, Madman and Mars, 2049 AD. For Tang Nano 20K revision 3923. Supply your own Zork story files.</p>
       <figure class="terminal">
         <div class="terminal-bar"><span aria-hidden="true">● ● ●</span> ZORK III / SERIAL SESSION</div>
         <a href="assets/zork-iii.png"><img src="assets/zork-iii.png" width="1306" height="598" alt="Physical serial session: selecting Zork III starts the game at Endless Stair, with score and moves above the transcript."></a>
@@ -51,7 +51,7 @@
           <p>A <strong>PicoRV32 RISC-V CPU</strong> runs a bare-metal Z-machine interpreter in FPGA hardware. Stories load from a FAT16/FAT32 microSD card into the board’s integrated SDRAM.</p>
           <dl>
             <div><dt>Display</dt><dd>720p HDMI text output or a USB serial terminal.</dd></div>
-            <div><dt>Input</dt><dd>UTF-8 USB serial from your computer, or a PS/2 keyboard through a 3.3 V-safe adapter, with Compose and Unicode hex entry.</dd></div>
+            <div><dt>Input</dt><dd>USB keyboard through the onboard BL616 and a powered hub, UTF-8 USB serial from your computer, or physical PS/2 through a 3.3 V-safe adapter. Matching Companion firmware enables automatic USB selection; Compose and Unicode hex entry are retained.</dd></div>
             <div><dt>Stories &amp; saves</dt><dd>Choose from up to 1,000 stories. Each story gets five save positions in a matching .sav file, created automatically on its first confirmed SAVE.</dd></div>
             <div><dt>Interpreter</dt><dd>V3 and V5 support, Unicode game text and MORE paging. HDMI uses fallback glyphs for non-ASCII. Compatibility is bounded; see the README for tested editions and limits.</dd></div>
           </dl>
@@ -75,11 +75,15 @@
       <p class="eyebrow">YOUR TURN</p>
       <h2>Build your own text-adventure machine.</h2>
       <ol class="steps">
-        <li><h3>Get the build</h3><p>Download the v0.7.0 preview bitstream, Madman and Mars story files, notices and checksums. Or build the current firmware with Gowin FPGA Designer.</p><a href="https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.7.0">Preview downloads ↗</a></li>
+        <li><h3>Get the build</h3><p>Download the v0.8.0 FPGA bitstream and matching Companion installation bundle, plus stories, notices and checksums. The FPGA and BL616 are updated separately.</p><a href="https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0">Prerelease downloads ↗</a></li>
         <li><h3>Prepare your card</h3><p>Supply compatible story files on a FAT16/FAT32 microSD card. Copy the stories into /ZORK. The first confirmed SAVE creates a matching .sav beside the story; no save-file setup is required.</p><a href="https://github.com/dandydonh/tang-nano-20k-zork#automatic-per-story-saves">Stories &amp; automatic saves ↗</a></li>
-        <li><h3>Connect and explore</h3><p>Follow the board-programming instructions, then connect a serial terminal or HDMI display and suitable keyboard.</p><a href="https://github.com/dandydonh/tang-nano-20k-zork#keyboard-through-usb-serial">Serial terminal setup ↗</a></li>
+        <li><h3>Connect and explore</h3><p>Follow the separate FPGA and Companion installation instructions. Connect a powered keyboard hub for USB input, or a PC for serial. The two-second flashing-LED window retains S1 manual overrides.</p><a href="https://github.com/dandydonh/tang-nano-20k-zork#automatic-usb-keyboard--onboard-serial-3923-experimental">Input and startup guide ↗</a></li>
       </ol>
-      <aside class="status"><strong>Current firmware status.</strong> The v0.7.0 preview adds Unicode filenames and game text, PS/2 Compose and hex input, and removes legacy shared-save scanning.</aside>
+      <aside class="status">
+        <p><strong>Why the Companion update?</strong> Stock FPGA-Companion v1.4.33 does not send the host-readiness reports used by v0.8.0 automatic selection. This experimental release includes a custom Companion that reports the USB host controller’s initialization result. Flashing the FPGA bitstream alone does not update the BL616. <a href="https://github.com/dandydonh/tang-nano-20k-zork/blob/main/docs/BL616_CUSTOM_COMPANION_INSTALL.md">Companion installation and recovery ↗</a></p>
+        <p><strong>Updating only the bitstream?</strong> Stock Companion needs two separate S1 presses/releases during the two-second startup window for manual USB mode. Without reports or recognized legacy traffic, startup falls back to serial after about 10 seconds. Legacy discovery/HID activity without readiness reports instead gives a diagnostic with UART blocked. One S1 press/release selects manual serial; real keyboard traffic or custom reports can still block conflicting UART. <a href="https://github.com/dandydonh/tang-nano-20k-zork#if-only-the-bitstream-is-updated">Read the compatibility details ↗</a></p>
+        <p><strong>Prerelease validation.</strong> The packaged FPGA passed timing and flash verification; focused startup and actual-CPU input tests passed. Companion installation was independently read back with Partner preserved. Physical startup, keyboard/serial operation and power-cycle behavior of the matching pair remain unconfirmed. Earlier intermittent startup failures are not proven fixed. <a href="https://github.com/dandydonh/tang-nano-20k-zork/releases/tag/v0.8.0">Release notes and checksums ↗</a></p>
+      </aside>
     </section>
   </main>
   <footer class="wrap footer">
