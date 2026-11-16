@@ -9,6 +9,8 @@ __pycache__/
 /assets/*.img
 
 /PROGRESS.md
+/HANDOFF.MD
 /inspect_files/
 
 /BUILD_RESULT.md
+/tools_path.txt
