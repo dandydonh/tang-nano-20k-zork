@@ -24,6 +24,7 @@ void console_story_flush(void);
 void console_edit_begin(unsigned initial_cells);
 void console_edit_clear(void);
 void console_edit_end(void);
+int console_edit_backspace(void);
 /* Count completed lower-window lines; input starts a fresh page. Height zero
  * disables paging for noninteractive native tests. */
 void console_page_height(unsigned rows);

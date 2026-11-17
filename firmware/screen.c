@@ -84,6 +84,13 @@ void screen_edit_begin(unsigned initial_cells) {
   editing=1;
 }
 void screen_edit_end(void){screen_flush();editing=0;}
+/* Erase one single-column character just echoed; 0 means redraw instead. */
+int screen_edit_backspace(void) {
+  screen_flush();
+  if(!editing||!screen.col[screen.window])return 0;
+  screen_glyph(8,1);screen_glyph(' ',1);screen_glyph(8,1);
+  return 1;
+}
 void screen_edit_clear(void) {
   screen_flush();unsigned cells=edit_initial+edit_lines*CONSOLE_COLUMNS+screen.col[screen.window]-edit_column;
   while(cells--){screen_glyph(8,1);screen_glyph(' ',1);screen_glyph(8,1);}

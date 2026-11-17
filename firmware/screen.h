@@ -11,6 +11,7 @@ void screen_unicode_put(unsigned c);
 void screen_name_put(unsigned c);
 void screen_edit_begin(unsigned initial_cells);
 void screen_edit_clear(void);
+int screen_edit_backspace(void);
 void screen_edit_end(void);
 void screen_flush(void);
 void screen_split(unsigned lines);

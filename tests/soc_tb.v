@@ -109,7 +109,7 @@ module soc_tb;
      kdata=1;repeat(500)@(negedge clk);
    end
  endtask
- integer edit_index;
+ integer edit_index,erase_chars;
  task uart_line(input string line);
    integer n;begin for(n=0;n<line.len();n=n+1)send_uart(line[n]);send_uart(13);end
  endtask
@@ -187,10 +187,14 @@ module soc_tb;
        wait(dut.uart_fifo.count<4);send_uart("x");
      end
      repeat(20000)@(negedge clk);
+     erase_chars=chars;
      for(edit_index=0;edit_index<90;edit_index=edit_index+1)begin
        wait(dut.uart_fifo.count==0);repeat(8000)@(negedge clk);send_uart(127);
      end
-     wait(dut.uart_fifo.count==0);repeat(8000)@(negedge clk);
+     wait(dut.uart_fifo.count==0);repeat(400000)@(negedge clk);
+     // Single-column deletes must not redraw the line: only the delete that
+     // leaves column zero (one full redraw) may cost more than BS SPACE BS.
+     if(chars-erase_chars>1500)$fatal(1,"wrapped-line erase emitted %0d serial bytes for 90 deletes",chars-erase_chars);
      if(dut.uover)$fatal(1,"UART input FIFO overflowed during wrapped-line edit");
    end
    send_uart("s");send_uart("a");send_uart("v");send_uart("e");send_uart(13);

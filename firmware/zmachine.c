@@ -304,6 +304,14 @@ static void input_echo(int c) {
     if(version==5)screen_unicode_put(u);else console_put(u);
   }
 }
+/* Remove the last echoed input character without redrawing the whole line.
+ * Returns 0 when the caller must clear and re-echo instead. */
+static int erase_last_echo(unsigned zscii) {
+  if(!streams.screen||streams.depth)return 1;
+  unsigned u=zscii_unicode(zscii);
+  if(u<32||!unicode_printable(u)||unicode_columns(u)!=1)return 0;
+  return version==5?screen_edit_backspace():console_edit_backspace();
+}
 static void clear_story_input(void) {
   if(streams.screen&&!streams.depth){if(version==5)screen_edit_clear();else console_edit_clear();}
 }
@@ -362,7 +370,7 @@ static void read_line(unsigned text,unsigned parse) {
       recalled=c==KEY_UP;continue;
     }
     if(c=='\r'||c=='\n')break;
-    if(c==8||c==127){if(len){len--;clear_story_input();for(unsigned i=0;i<len;i++)input_echo(rb(text+offset+i));}continue;}
+    if(c==8||c==127){if(len){len--;if(!erase_last_echo(rb(text+offset+len))){clear_story_input();for(unsigned i=0;i<len;i++)input_echo(rb(text+offset+i));}}continue;}
     unsigned z=unicode_zscii(unicode_lower(c));if(!z)z=unicode_zscii(c);
     if(z&&len+1<max&&(len||unicode_columns(c))){wb(text+offset+len++,z);input_echo(z);}
   }

@@ -69,6 +69,14 @@ void console_edit_begin(unsigned initial_cells) {
   editing=1;
 }
 void console_edit_end(void){editing=0;}
+/* Erase one single-column character just echoed. Returns 0 when the cursor is
+ * at column zero on either output, where only a full redraw is exact. */
+int console_edit_backspace(void) {
+  if(!editing||!column||!serial_column)return 0;
+  hdmi_put(8);hdmi_put(' ');hdmi_put(8);
+  serial_put(8);serial_put(' ');serial_put(8);
+  return 1;
+}
 void console_edit_clear(void) {
   unsigned cells=edit_initial+edit_lines*CONSOLE_COLUMNS+column-edit_column;
   while(cells--){hdmi_put(8);hdmi_put(' ');hdmi_put(8);}
