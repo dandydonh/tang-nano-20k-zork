@@ -180,11 +180,18 @@ module soc_tb;
    wait(prompts==3);wait(status_updates==prompts);repeat(2000)@(negedge clk);
    if($test$plusargs("wrap"))begin
      // Cross a physical input line and erase it back through the wrap.
-     for(edit_index=0;edit_index<90;edit_index=edit_index+1)send_uart("x");
+     // The UART input FIFO is 16 bytes with no flow control, and the firmware
+     // needs far longer than one DEL interval to redraw a wrapped line. Pace
+     // every byte on the firmware draining the FIFO so nothing is dropped.
+     for(edit_index=0;edit_index<90;edit_index=edit_index+1)begin
+       wait(dut.uart_fifo.count<4);send_uart("x");
+     end
      repeat(20000)@(negedge clk);
      for(edit_index=0;edit_index<90;edit_index=edit_index+1)begin
-       send_uart(127);repeat(8000)@(negedge clk);
+       wait(dut.uart_fifo.count==0);repeat(8000)@(negedge clk);send_uart(127);
      end
+     wait(dut.uart_fifo.count==0);repeat(8000)@(negedge clk);
+     if(dut.uover)$fatal(1,"UART input FIFO overflowed during wrapped-line edit");
    end
    send_uart("s");send_uart("a");send_uart("v");send_uart("e");send_uart(13);
    wait(prompts==4);wait(status_updates==prompts);repeat(2000)@(negedge clk);
